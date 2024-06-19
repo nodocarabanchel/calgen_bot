@@ -1,29 +1,32 @@
-import os
-import yaml
-import logging
-from pathlib import Path
-from telegram_bot import TelegramBot
-from calendar_generator import OCRReader, EntityExtractor, ICSExporter
 import asyncio
+import logging 
+from pathlib import Path
+from utils import load_config, setup_logging
+from ics_uploader import extract_event_details_from_ics, send_event
+from calendar_generator import OCRReader, EntityExtractor, ICSExporter
+from telegram_bot import TelegramBot
 
-def load_config():
-    with open("settings.yaml", "r") as file:
-        return yaml.safe_load(file)
+async def main():
+    config = load_config()
+    setup_logging(config)
 
-def setup_logging(config):
-    log_file = config.get("logging", {}).get("log_file", "default.log")
-    log_level = config.get("logging", {}).get("log_level", "INFO").upper()
+    if config["telegram_bot"]["use"]:
+        bot = TelegramBot(
+            config["telegram_bot"]["token"],
+            config["telegram_bot"]["download_tracker_path"],
+            config["telegram_bot"]["offset_path"]
+        )
+        await bot.download_images(config["telegram_bot"]["chat_id"], "./images")
 
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ]
-    )
+    images_folder = Path("images")
+    text_output_folder = Path("plain_texts")
+    ics_output_folder = Path("ics")
 
-def process_images(config, image_files, text_output_folder, ics_output_folder):
+    text_output_folder.mkdir(exist_ok=True)
+    ics_output_folder.mkdir(exist_ok=True)
+
+    image_files = [img_file for img_file in images_folder.iterdir() if img_file.suffix.lower() in OCRReader.SUPPORTED_FORMATS]
+    
     ocr_service = config["ocr_service"]
     google_config = config.get("google_document_ai")
     
@@ -64,28 +67,16 @@ def process_images(config, image_files, text_output_folder, ics_output_folder):
             else:
                 logging.warning(f"Failed to extract complete data for image {img_file.name}")
 
-async def main():
-    config = load_config()
-    setup_logging(config)
-
-    if config["telegram_bot"]["use"]:
-        bot = TelegramBot(
-            config["telegram_bot"]["token"],
-            config["telegram_bot"]["download_tracker_path"],
-            config["telegram_bot"]["offset_path"]
-        )
-        await bot.download_images(config["telegram_bot"]["chat_id"], "./images")
-
-    images_folder = Path("images")
-    text_output_folder = Path("plain_texts")
-    ics_output_folder = Path("ics")
-
-    text_output_folder.mkdir(exist_ok=True)
-    ics_output_folder.mkdir(exist_ok=True)
-
-    image_files = [img_file for img_file in images_folder.iterdir() if img_file.suffix.lower() in OCRReader.SUPPORTED_FORMATS]
+    ics_files = [ics_file for ics_file in ics_output_folder.iterdir() if ics_file.suffix.lower() == '.ics']
     
-    process_images(config, image_files, text_output_folder, ics_output_folder)
+    for ics_file in ics_files:
+        event_details = extract_event_details_from_ics(ics_file)
+        if event_details:
+            base_filename = ics_file.stem
+            send_event(config, event_details, base_filename)
+        else:
+            logging.warning(f'Failed to extract event details from {ics_file.name}')
+
     logging.info("All processes completed successfully.")
 
 if __name__ == "__main__":

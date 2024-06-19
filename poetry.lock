@@ -1308,6 +1308,21 @@ torch = ["safetensors", "torch"]
 typing = ["types-PyYAML", "types-requests", "types-simplejson", "types-toml", "types-tqdm", "types-urllib3", "typing-extensions (>=4.8.0)"]
 
 [[package]]
+name = "icalendar"
+version = "5.0.12"
+description = "iCalendar parser/generator"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "icalendar-5.0.12-py3-none-any.whl", hash = "sha256:d873bb859df9c6d0e597b16d247436e0f83f7ac1b90a06429b8393fe8afeba40"},
+    {file = "icalendar-5.0.12.tar.gz", hash = "sha256:73f9be68477722c98320621400943705dcfdbbc6c2b565253f72d3f87e514db8"},
+]
+
+[package.dependencies]
+python-dateutil = "*"
+pytz = "*"
+
+[[package]]
 name = "ics"
 version = "0.7.2"
 description = "Python icalendar (rfc5545) parser"
@@ -4340,4 +4355,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "13497794dd3652f0c3309402c394a0ac2ee0d1d07811f5cbab9785c19f597021"
+content-hash = "46bbecb275f4778403eaaefa4519128fbbe464930d65faab5bc9e1a467ef28d5"

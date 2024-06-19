@@ -1,28 +1,59 @@
-import requests
-import os
-from pathlib import Path
 import logging
+from pathlib import Path
+from icalendar import Calendar
+import requests
+import json
+from utils import get_geolocation, save_to_file
 
+def extract_event_details_from_ics(ics_file):
+    with open(ics_file, 'r') as f:
+        gcal = Calendar.from_ical(f.read())
+        for component in gcal.walk():
+            if component.name == "VEVENT":
+                event_details = {
+                    'title': str(component.get('SUMMARY')),
+                    'description': str(component.get('DESCRIPTION')),
+                    'place_name': str(component.get('LOCATION')).split(",")[0],  # Asume que el nombre del lugar es la primera parte de la ubicación
+                    'place_address': str(component.get('LOCATION')),
+                    'start_datetime': int(component.get('DTSTART').dt.timestamp()),
+                }
+                return event_details
+    return None
 
-def upload_ics_file(api_url, file_path, headers):
-    with open(file_path, 'rb') as file:
-        files = {'file': (file_path.name, file, 'text/calendar')}
-        response = requests.post(api_url, files=files, headers=headers)
+def save_to_file(data, file_path):
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+def send_event(config, event_details, base_filename):
+    api_url = config["gancio_api"]["url"]
+    api_token = config["gancio_api"].get("token")
+
+    # Obtener la latitud y longitud usando la API de OpenCage
+    lat, lng = get_geolocation(config, event_details['place_address'])
+    if lat is not None and lng is not None:
+        event_details['place_latitude'] = lat
+        event_details['place_longitude'] = lng
+
+    data = {
+        'title': event_details['title'],
+        'description': event_details['description'],
+        'place_name': event_details['place_name'],
+        'place_address': event_details['place_address'],
+        'place_latitude': str(event_details.get('place_latitude', '')),
+        'place_longitude': str(event_details.get('place_longitude', '')),
+        'start_datetime': str(event_details['start_datetime']),
+    }
+
+    headers = {}
+    if api_token:
+        headers['Authorization'] = f'Bearer {api_token}'
+
+    # Guardar datos en un archivo
+    api_data_directory = Path("api_data")
+    api_data_directory.mkdir(exist_ok=True)
+    file_path = api_data_directory / f"{base_filename}.json"
+    save_to_file(data, file_path)
+
+    response = requests.post(api_url, data=data, headers=headers)
+    logging.info(f'Status Code: {response.status_code}, Response: {response.text}')
     return response
-
-def delete_file(file_path):
-    os.remove(file_path)
-    logging.info(f"Deleted {file_path}")
-
-# Example usage
-api_url = 'https://example.com/calendar/api/upload'  # Replace with actual API endpoint
-headers = {'Authorization': 'Bearer YOUR_ACCESS_TOKEN'}  # Replace with actual headers/authorization if needed
-
-ics_folder = Path("path/to/ics_files")
-for ics_file in ics_folder.glob("*.ics"):
-    response = upload_ics_file(api_url, ics_file, headers)
-    if response.status_code == 200:
-        logging.info(f"Successfully uploaded {ics_file}")
-        delete_file(ics_file)
-    else:
-        logging.error(f"Failed to upload {ics_file}: {response.text}")

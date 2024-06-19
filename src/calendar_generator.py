@@ -1,7 +1,7 @@
 import logging
-from datetime import datetime  # Importa solo datetime
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Dict, Optional
 from PIL import Image
 from dateutil import parser
 from google.cloud import documentai_v1beta3 as documentai

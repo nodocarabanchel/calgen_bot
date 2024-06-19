@@ -34,3 +34,12 @@ telegram_bot:
   offset_path: "offset.json"
   start_date: null  # Puede ser null si no se especifica
   end_date: null
+
+# Configuración de la API de Gancio
+gancio_api:
+  url: https://des.convoca.la/api/event"
+  token: null  # Clave de API opcional, puede ser null si no se requiere
+
+# Configuración de la API de OpenCage
+opencage_api:
+  key: "your_opencage_api_key_here"

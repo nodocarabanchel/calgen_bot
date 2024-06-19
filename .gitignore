@@ -135,6 +135,8 @@ images/*
 plain_texts/*
 !plain_texts/.gitkeep
 ics/*
+api_data/*
+!api_data/.gitkeep
 
 # mac users
 .DS_Store
