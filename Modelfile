@@ -1,0 +1,4 @@
+FROM llama2:13b-chat
+PARAMETER temperature 1
+SYSTEM """
+"""

@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  calgen_bot:
+    build: .
+    container_name: calgen_bot
+    volumes:
+      - ./images:/app/images
+      - ./ics:/app/ics
+      - ./download_tracker:/app/download_tracker
+      - ./plain_text:/app/plain_text
+    environment:
+      - SMTP_HOST=smtp-relay.sendinblue.com
+      - SMTP_PORT=587
+      - SMTP_USER=tu_correo@tudominio.com
+      - SMTP_PASS=tu_clave_API
+      - SMTP_FROM=tu_correo@tudominio.com
+      - SMTP_TO=destinatario@example.com
