@@ -1,5 +1,5 @@
 import asyncio
-import logging 
+import logging
 from pathlib import Path
 from utils import load_config, setup_logging
 from ics_uploader import extract_event_details_from_ics, send_event
@@ -13,10 +13,11 @@ async def main():
     if config["telegram_bot"]["use"]:
         bot = TelegramBot(
             config["telegram_bot"]["token"],
+            config["telegram_bot"]["chat_ids"],
             config["telegram_bot"]["download_tracker_path"],
             config["telegram_bot"]["offset_path"]
         )
-        await bot.download_images(config["telegram_bot"]["chat_id"], "./images")
+        await bot.download_images("./images")
 
     images_folder = Path("images")
     text_output_folder = Path("plain_texts")

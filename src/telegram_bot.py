@@ -5,8 +5,9 @@ from pathlib import Path
 import json
 
 class TelegramBot:
-    def __init__(self, token, download_tracker_path, offset_path):
+    def __init__(self, token, chat_ids, download_tracker_path, offset_path):
         self.bot = Bot(token)
+        self.chat_ids = [int(str(chat_id).strip()) for chat_id in chat_ids]
         self.download_tracker_path = Path(download_tracker_path)
         self.offset_path = Path(offset_path)
 
@@ -35,7 +36,7 @@ class TelegramBot:
         with open(self.offset_path, 'w') as file:
             json.dump({"offset": new_offset}, file)
 
-    async def download_images(self, channel_id, image_folder):
+    async def download_images(self, image_folder):
         downloaded_ids = self.get_downloaded_ids()
         offset = self.get_offset()
 
@@ -54,9 +55,8 @@ class TelegramBot:
 
                 if update.message:
                     update_chat_id = int(str(update.message.chat.id).strip())
-                    expected_channel_id = int(str(channel_id).strip())
 
-                    if update_chat_id == expected_channel_id:
+                    if update_chat_id in self.chat_ids:
                         if update.message.photo:
                             # Get the highest resolution photo
                             photo: PhotoSize = update.message.photo[-1]

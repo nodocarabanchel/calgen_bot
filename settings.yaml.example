@@ -29,7 +29,10 @@ google_document_ai:
 telegram_bot:
   use: true  # Usar bot de Telegram para notificaciones (true/false)
   token: "telegram_bot_token"  # Token del bot de Telegram
-  chat_id: "telegram_chat_id"  # ID de chat para enviar mensajes
+  chat_ids:  # Lista de ID de chat para enviar mensajes
+    - "telegram_chat_id_1"
+    - "telegram_chat_id_2"
+    - "telegram_chat_id_3"
   download_tracker_path: "download_tracker/download_tracker.txt"
   offset_path: "offset.json"
   start_date: null  # Puede ser null si no se especifica
