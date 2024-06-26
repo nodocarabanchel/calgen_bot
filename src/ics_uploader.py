@@ -7,7 +7,7 @@ from utils import get_geolocation, save_to_file
 import imghdr
 from PIL import Image
 import io
-from time import sleep
+from time import sleep, time
 
 def extract_event_details_from_ics(ics_file):
     try:
@@ -22,6 +22,7 @@ def extract_event_details_from_ics(ics_file):
                         'place_address': str(component.get('LOCATION')),
                         'start_datetime': int(component.get('DTSTART').dt.timestamp()),
                     }
+                    logging.info(f"Event details extracted: {event_details}")
                     return event_details
     except Exception as e:
         logging.error(f"Failed to extract event details from ICS file: {e}")
@@ -104,7 +105,10 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
         logging.warning("Image path is not provided or does not exist.")
 
     retries = 0
-    while retries < max_retries:
+    total_wait_time = 0
+    max_wait_time = 300  # 5 minutes
+
+    while retries < max_retries and total_wait_time < max_wait_time:
         try:
             logging.info(f"Files: {files}")
             response = requests.post(api_url, files=files, headers=headers)
@@ -116,9 +120,11 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
                 logging.error(f"404 Not Found: The endpoint {api_url} does not exist.")
                 break
             elif response.status_code == 429:
-                logging.warning(f"429 Too Many Requests: Retrying after backoff. Attempt {retries + 1} of {max_retries}.")
+                wait_time = min(2 ** retries, max_wait_time - total_wait_time)
+                total_wait_time += wait_time
+                logging.warning(f"429 Too Many Requests: Retrying after backoff. Attempt {retries + 1} of {max_retries}. Waiting for {wait_time} seconds.")
                 retries += 1
-                sleep(2 ** retries)  # Exponential backoff
+                sleep(wait_time)  # Exponential backoff
             elif response.status_code == 500:
                 logging.error(f"500 Internal Server Error: {response.text}")
                 break
