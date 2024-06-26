@@ -74,7 +74,12 @@ async def main():
         event_details = extract_event_details_from_ics(ics_file)
         if event_details:
             base_filename = ics_file.stem
-            send_event(config, event_details, base_filename)
+            # Buscar la imagen correspondiente
+            image_file = images_folder / f"{base_filename}.jpg"  # Asume que la imagen es jpg
+            if image_file.exists():
+                send_event(config, event_details, base_filename, str(image_file))
+            else:
+                send_event(config, event_details, base_filename)  # Sin imagen
         else:
             logging.warning(f'Failed to extract event details from {ics_file.name}')
 

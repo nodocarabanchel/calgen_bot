@@ -4,6 +4,9 @@ import requests
 import json
 from icalendar import Calendar
 from utils import get_geolocation, save_to_file
+import imghdr
+from PIL import Image
+import io
 
 def extract_event_details_from_ics(ics_file):
     logging.info(f"Extracting event details from ICS file: {ics_file}")
@@ -33,23 +36,31 @@ def save_to_file(data, file_path):
     except Exception as e:
         logging.error(f"Failed to save data to file: {e}")
 
-def send_event(config, event_details, base_filename):
-    api_url = config["gancio_api"]["url"]
+def compress_image(image_path, max_size_kb=500):
+    img = Image.open(image_path)
+    img_byte_arr = io.BytesIO()
+    quality = 90
+    img.save(img_byte_arr, format='JPEG', quality=quality)
+    while img_byte_arr.tell() > max_size_kb * 1024 and quality > 20:
+        quality -= 10
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='JPEG', quality=quality)
+    img_byte_arr.seek(0)
+    return img_byte_arr
+
+def send_event(config, event_details, base_filename, image_path=None):
+    api_url = config["gancio_api"]["url"].rstrip('"')  # Remove any trailing quotes
     api_token = config["gancio_api"].get("token")
-
-    logging.info(f"Sending event: {event_details['title']}")
-
     lat, lng = get_geolocation(config, event_details['place_address'])
     if lat is not None and lng is not None:
         event_details['place_latitude'] = lat
         event_details['place_longitude'] = lng
-        logging.info(f"Geolocation obtained: Latitude {lat}, Longitude {lng}")
     else:
         logging.warning("Geolocation could not be obtained.")
 
     data = {
         'title': event_details['title'],
-        'description': event_details['description'],
+        'description': event_details['description'] if event_details['description'] else 'None',
         'place_name': event_details['place_name'],
         'place_address': event_details['place_address'],
         'place_latitude': str(event_details.get('place_latitude', '')),
@@ -59,10 +70,9 @@ def send_event(config, event_details, base_filename):
         'multidate': 'false',  # Assuming this field for this example
     }
 
-    headers = {
-        'Authorization': f'Bearer {api_token}' if api_token else '',
-        'Content-Type': 'multipart/form-data'
-    }
+    headers = {}
+    if api_token:
+        headers['Authorization'] = f'Bearer {api_token}'
 
     # Save data to a file
     api_data_directory = Path("api_data")
@@ -83,19 +93,31 @@ def send_event(config, event_details, base_filename):
         'multidate': (None, data['multidate']),
     }
 
+    if image_path and Path(image_path).exists():
+        img_type = imghdr.what(image_path)
+        if img_type in ['jpeg', 'png', 'gif']:  # Add or remove types as accepted by the API
+            compressed_image = compress_image(image_path)
+            files['image'] = (f'image.{img_type}', compressed_image, f'image/{img_type}')
+            files['image_name'] = (None, '')
+            files['image_focalpoint'] = (None, '0,0')
+        else:
+            logging.warning(f"Unsupported image type: {img_type}")
+    else:
+        logging.warning("Image path is not provided or does not exist.")
+
     try:
         logging.info(f"Headers: {headers}")
         logging.info(f"Files: {files}")
 
         response = requests.post(api_url, files=files, headers=headers)
-        logging.info(f'Event sent. Status Code: {response.status_code}, Response: {response.text}')
     except Exception as e:
         logging.error(f"Failed to send event: {e}")
 
     if response.status_code == 404:
         logging.error(f"404 Not Found: The endpoint {api_url} does not exist.")
+    elif response.status_code == 500:
+        logging.error(f"500 Internal Server Error: {response.text}")
     elif response.status_code != 200:
         logging.error(f"Error {response.status_code}: {response.text}")
 
     return response
-
