@@ -7,9 +7,9 @@ from utils import get_geolocation, save_to_file
 import imghdr
 from PIL import Image
 import io
+from time import sleep
 
 def extract_event_details_from_ics(ics_file):
-    logging.info(f"Extracting event details from ICS file: {ics_file}")
     try:
         with open(ics_file, 'r') as f:
             gcal = Calendar.from_ical(f.read())
@@ -22,7 +22,6 @@ def extract_event_details_from_ics(ics_file):
                         'place_address': str(component.get('LOCATION')),
                         'start_datetime': int(component.get('DTSTART').dt.timestamp()),
                     }
-                    logging.info(f"Event details extracted: {event_details}")
                     return event_details
     except Exception as e:
         logging.error(f"Failed to extract event details from ICS file: {e}")
@@ -32,7 +31,6 @@ def save_to_file(data, file_path):
     try:
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
-        logging.info(f"Data successfully saved to file: {file_path}")
     except Exception as e:
         logging.error(f"Failed to save data to file: {e}")
 
@@ -48,7 +46,7 @@ def compress_image(image_path, max_size_kb=500):
     img_byte_arr.seek(0)
     return img_byte_arr
 
-def send_event(config, event_details, base_filename, image_path=None):
+def send_event(config, event_details, base_filename, image_path=None, max_retries=5):
     api_url = config["gancio_api"]["url"].rstrip('"')  # Remove any trailing quotes
     api_token = config["gancio_api"].get("token")
     lat, lng = get_geolocation(config, event_details['place_address'])
@@ -66,8 +64,8 @@ def send_event(config, event_details, base_filename, image_path=None):
         'place_latitude': str(event_details.get('place_latitude', '')),
         'place_longitude': str(event_details.get('place_longitude', '')),
         'start_datetime': str(event_details['start_datetime']),
-        'tags[]': 'test tag',  # Assuming a test tag for this example
-        'multidate': 'false',  # Assuming this field for this example
+        'tags[]': '',
+        'multidate': 'false',
     }
 
     headers = {}
@@ -105,19 +103,30 @@ def send_event(config, event_details, base_filename, image_path=None):
     else:
         logging.warning("Image path is not provided or does not exist.")
 
-    try:
-        logging.info(f"Headers: {headers}")
-        logging.info(f"Files: {files}")
+    retries = 0
+    while retries < max_retries:
+        try:
+            logging.info(f"Files: {files}")
+            response = requests.post(api_url, files=files, headers=headers)
+            logging.info(f'Event sent. Status Code: {response.status_code}, Response: {response.text}')
+            
+            if response.status_code == 200:
+                return response
+            elif response.status_code == 404:
+                logging.error(f"404 Not Found: The endpoint {api_url} does not exist.")
+                break
+            elif response.status_code == 429:
+                logging.warning(f"429 Too Many Requests: Retrying after backoff. Attempt {retries + 1} of {max_retries}.")
+                retries += 1
+                sleep(2 ** retries)  # Exponential backoff
+            elif response.status_code == 500:
+                logging.error(f"500 Internal Server Error: {response.text}")
+                break
+            else:
+                logging.error(f"Error {response.status_code}: {response.text}")
+                break
+        except Exception as e:
+            logging.error(f"Failed to send event: {e}")
+            break
 
-        response = requests.post(api_url, files=files, headers=headers)
-    except Exception as e:
-        logging.error(f"Failed to send event: {e}")
-
-    if response.status_code == 404:
-        logging.error(f"404 Not Found: The endpoint {api_url} does not exist.")
-    elif response.status_code == 500:
-        logging.error(f"500 Internal Server Error: {response.text}")
-    elif response.status_code != 200:
-        logging.error(f"Error {response.status_code}: {response.text}")
-
-    return response
+    return None
