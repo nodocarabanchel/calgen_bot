@@ -59,7 +59,7 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
 
     data = {
         'title': event_details['title'],
-        'description': event_details['description'] if event_details['description'] else 'None',
+        'description': event_details['description'] if event_details['description'] else '',
         'place_name': event_details['place_name'],
         'place_address': event_details['place_address'],
         'place_latitude': str(event_details.get('place_latitude', '')),
@@ -81,15 +81,15 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
 
     # Format the payload for multipart/form-data
     files = {
-        'title': (None, data['title']),
-        'description': (None, data['description']),
-        'place_name': (None, data['place_name']),
-        'place_address': (None, data['place_address']),
-        'place_latitude': (None, data['place_latitude']),
-        'place_longitude': (None, data['place_longitude']),
-        'start_datetime': (None, data['start_datetime']),
-        'tags[]': (None, data['tags[]']),
-        'multidate': (None, data['multidate']),
+        'title': ("", data['title']),
+        'description': ("", data['description']),
+        'place_name': ("", data['place_name']),
+        'place_address': ("", data['place_address']),
+        'place_latitude': ("", data['place_latitude']),
+        'place_longitude': ("", data['place_longitude']),
+        'start_datetime': ("", data['start_datetime']),
+        'tags[]': ("", data['tags[]']),
+        'multidate': ("", data['multidate']),
     }
 
     if image_path and Path(image_path).exists():
