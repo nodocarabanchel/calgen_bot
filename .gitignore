@@ -148,3 +148,6 @@ settings.yaml
 
 # db
 tracker.db
+
+# offset
+offset.json
