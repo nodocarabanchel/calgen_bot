@@ -17,7 +17,7 @@ def extract_event_details_from_ics(ics_file):
                 if component.name == "VEVENT":
                     event_details = {
                         'title': str(component.get('SUMMARY')),
-                        'description': str(component.get('DESCRIPTION')),
+                        'description': str(component.get('DESCRIPTION', '')),
                         'place_name': str(component.get('LOCATION')).split(",")[0],
                         'place_address': str(component.get('LOCATION')),
                         'start_datetime': int(component.get('DTSTART').dt.timestamp()),
@@ -27,6 +27,7 @@ def extract_event_details_from_ics(ics_file):
     except Exception as e:
         logging.error(f"Failed to extract event details from ICS file: {e}")
     return None
+
 
 def save_to_file(data, file_path):
     try:
@@ -59,7 +60,6 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
 
     data = {
         'title': event_details['title'],
-        'description': event_details['description'] if event_details['description'] else '',
         'place_name': event_details['place_name'],
         'place_address': event_details['place_address'],
         'place_latitude': str(event_details.get('place_latitude', '')),
@@ -68,6 +68,10 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
         'tags[]': '',
         'multidate': 'false',
     }
+
+    # Add description if it exists and is not empty
+    if event_details.get('description') and event_details['description'].strip():
+        data['description'] = event_details['description'].strip()
 
     headers = {}
     if api_token:
@@ -80,17 +84,7 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     save_to_file(data, file_path)
 
     # Format the payload for multipart/form-data
-    files = {
-        'title': ("", data['title']),
-        'description': ("", data['description']),
-        'place_name': ("", data['place_name']),
-        'place_address': ("", data['place_address']),
-        'place_latitude': ("", data['place_latitude']),
-        'place_longitude': ("", data['place_longitude']),
-        'start_datetime': ("", data['start_datetime']),
-        'tags[]': ("", data['tags[]']),
-        'multidate': ("", data['multidate']),
-    }
+    files = {key: ("", value) for key, value in data.items()}
 
     if image_path and Path(image_path).exists():
         img_type = imghdr.what(image_path)
@@ -110,7 +104,6 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
 
     while retries < max_retries and total_wait_time < max_wait_time:
         try:
-            logging.info(f"Files: {files}")
             response = requests.post(api_url, files=files, headers=headers)
             logging.info(f'Event sent. Status Code: {response.status_code}, Response: {response.text}')
             
