@@ -8,6 +8,7 @@ import imghdr
 from PIL import Image
 import io
 from time import sleep, time
+from datetime import datetime, timedelta
 
 def extract_event_details_from_ics(ics_file):
     try:
