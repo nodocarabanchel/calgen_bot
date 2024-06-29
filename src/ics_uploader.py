@@ -15,12 +15,30 @@ def extract_event_details_from_ics(ics_file):
             gcal = Calendar.from_ical(f.read())
             for component in gcal.walk():
                 if component.name == "VEVENT":
+                    start = component.get('DTSTART').dt
+                    end = component.get('DTEND', component.get('DTSTART')).dt
+                    
+                    # Manejar eventos de varios días
+                    is_multi_day = False
+                    if isinstance(start, datetime) and isinstance(end, datetime):
+                        duration = end - start
+                        is_multi_day = duration.days > 0
+
+                    # Manejar eventos recurrentes
+                    recurrence = component.get('RRULE')
+                    recurrence_info = None
+                    if recurrence:
+                        recurrence_info = vRecur.from_ical(recurrence).to_ical().decode()
+
                     event_details = {
                         'title': str(component.get('SUMMARY')),
                         'description': str(component.get('DESCRIPTION', '')),
                         'place_name': str(component.get('LOCATION')).split(",")[0],
                         'place_address': str(component.get('LOCATION')),
-                        'start_datetime': int(component.get('DTSTART').dt.timestamp()),
+                        'start_datetime': int(start.timestamp()),
+                        'end_datetime': int(end.timestamp()) if end else None,
+                        'is_multi_day': is_multi_day,
+                        'recurrence': recurrence_info
                     }
                     logging.info(f"Event details extracted: {event_details}")
                     return event_details

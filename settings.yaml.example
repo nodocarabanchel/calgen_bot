@@ -46,3 +46,22 @@ gancio_api:
 # Configuración de la API de OpenCage
 opencage_api:
   key: "your_opencage_api_key_here"
+
+# Configuración de SQLite
+sqlite_db_path: "tracker.db"
+
+# Configuración de SMTP
+smtp:
+  host: ""
+  port: 587
+  user: ""
+  password: ""
+  from: ""
+  to: ""
+
+# Configuración de rutas de directorios
+directories:
+  images: "./images"
+  ics: "./ics"
+  download_tracker: "./download_tracker"
+  plain_text: "./plain_text"

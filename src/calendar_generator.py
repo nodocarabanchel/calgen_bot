@@ -96,7 +96,7 @@ class EntityExtractor:
 
     def extract_event_info(self, text: str):
         model_type = self.config['external_api']['service'] if self.config['external_api']['use'] else 'local_model'
-        prompt = (f"¿Cuál es el título, la fecha y hora de inicio en formato (YYYYMMDDTHHMMSS) y el lugar del evento en formato ICS "
+        prompt = (f"¿Cuál es el título, la fecha, hora de inicio y final (si lo tiene), el lugar del evento y si es recurrente en formato ICS "
                   f"(SUMMARY, DTSTART, LOCATION) y sin comentarios asumiendo que estamos en España y que si no "
                   f"se especifica el año, es el actual ({datetime.now().year})?: {text}")
 
@@ -143,10 +143,7 @@ class ICSExporter:
             return
 
         try:
-            # Parsear la fecha y hora (ya en CEST)
             date_obj = parser.parse(entities['date'])
-            
-            # Asegurarnos de que la fecha tenga la zona horaria CEST
             cest = pytz.timezone("Europe/Madrid")
             if date_obj.tzinfo is None:
                 date_obj = cest.localize(date_obj)
@@ -156,13 +153,10 @@ class ICSExporter:
             calendar = Calendar()
             event = Event()
             
-            # Usar la fecha y hora tal como está, ya que ya está en CEST
             event.begin = date_obj
             event.name = entities.get("summary", "Evento Desconocido")
             event.location = entities.get("location", "Ubicación Desconocida")
             event.description = entities.get("description", "No description provided")
-
-            # No añadimos la propiedad TZID manualmente, la biblioteca ics lo manejará
 
             calendar.events.add(event)
 

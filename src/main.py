@@ -1,21 +1,11 @@
 import asyncio
 import logging
 from pathlib import Path
-from utils import load_config, setup_logging
+from utils import load_config, setup_logging, clean_directories
 from ics_uploader import extract_event_details_from_ics, send_event
 from calendar_generator import OCRReader, EntityExtractor, ICSExporter
 from telegram_bot import TelegramBot
 from sqlite_tracker import SQLiteTracker
-
-def clean_directories(directories):
-    for directory in directories:
-        for item in Path(directory).glob('*'):
-            if item.is_file() and item.name != '.gitkeep':
-                try:
-                    item.unlink()
-                    logging.info(f"Deleted file: {item}")
-                except Exception as e:
-                    logging.error(f"Failed to delete file {item}: {e}")
 
 async def main():
     config = load_config()
@@ -30,11 +20,11 @@ async def main():
             config["telegram_bot"]["offset_path"],
             tracker
         )
-        await bot.download_images("./images")
+        await bot.download_images(config["directories"]["images"])
     
-    images_folder = Path("images")
-    text_output_folder = Path("plain_texts")
-    ics_output_folder = Path("ics")
+    images_folder = Path(config["directories"]["images"])
+    text_output_folder = Path(config["directories"]["plain_text"])
+    ics_output_folder = Path(config["directories"]["ics"])
     text_output_folder.mkdir(exist_ok=True)
     ics_output_folder.mkdir(exist_ok=True)
     
@@ -105,10 +95,10 @@ async def main():
 
     # Clean up directories
     directories_to_clean = [
-        'downloads_tracker',
-        'images',
-        'plain_texts',
-        'ics',
+        config["directories"]["download_tracker"],
+        config["directories"]["images"],
+        config["directories"]["plain_text"],
+        config["directories"]["ics"],
         'api_data'
     ]
     clean_directories(directories_to_clean)
