@@ -1,4 +1,5 @@
-FROM python:3.12.3-slim
+FROM python:3.11-slim-bullseye
+
 WORKDIR /app
 
 # Instalar dependencias del sistema
@@ -8,7 +9,12 @@ RUN apt-get update && apt-get install -y \
     libtesseract-dev \
     msmtp \
     mailutils \
-    sqlite3
+    sqlite3 \
+    build-essential \
+    libssl-dev \
+    libffi-dev \
+    python3-dev \
+    gcc
 
 # Copiar archivos de configuración y código fuente
 COPY pyproject.toml poetry.lock ./
@@ -36,8 +42,8 @@ VOLUME ["/app/images", "/app/ics", "/app/download_tracker", "/app/plain_text", "
 
 # Crear script de inicio
 RUN echo "#!/bin/sh\n\
-    cron\n\
-    tail -f /var/log/cron.log" > /start.sh
+cron\n\
+tail -f /var/log/cron.log" > /start.sh
 RUN chmod +x /start.sh
 
 # Comando para iniciar cron y mantener el contenedor en ejecución
