@@ -10,7 +10,7 @@ services:
       - ./ics:/app/ics
       - ./download_tracker:/app/download_tracker
       - ./plain_texts:/app/plain_texts
-      - ./sqlite_db:/app/sqlite_db
+      - sqlite_db:/app/sqlite_db
       - ./settings.yaml:/app/settings.yaml
       - ./key.json:/app/key.json
     environment:
@@ -19,3 +19,4 @@ services:
 
 volumes:
   sqlite_db:
+    name: calendar_generator_sqlite_db
