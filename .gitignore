@@ -129,16 +129,7 @@ dmypy.json
 .pyre/
 
 # Ignore everything in these folders except .gitkeep
-downloads_tracker/*
-!downloads_tracker/.gitkeep
-images/*
-!images/.gitkeep
-plain_texts/*
-!plain_texts/.gitkeep
-ics/*
-!ics/.gitkeep
-api_data/*
-!api_data/.gitkeep
+
 
 # mac users
 .DS_Store
@@ -154,3 +145,9 @@ app.log
 
 # settings
 settings.yaml
+
+# db
+tracker.db
+
+# offset
+offset.json

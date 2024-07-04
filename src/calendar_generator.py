@@ -11,8 +11,9 @@ import easyocr
 import pytesseract
 from ics import Calendar, Event
 from groq import Groq
-import ollama
 import re
+import pytz
+
 
 class OCRReader:
     SUPPORTED_FORMATS = ['.jpg', '.jpeg', '.png', '.bmp', '.pdf', '.tiff', '.tif', '.gif']
@@ -94,7 +95,7 @@ class EntityExtractor:
 
     def extract_event_info(self, text: str):
         model_type = self.config['external_api']['service'] if self.config['external_api']['use'] else 'local_model'
-        prompt = (f"¿Cuál es el título, la fecha (en formato DD-MM-YYYY) y el lugar del evento en formato ICS "
+        prompt = (f"¿Cuál es el título, la fecha, hora de inicio y final (si lo tiene), el lugar del evento y si es recurrente en formato ICS "
                   f"(SUMMARY, DTSTART, LOCATION) y sin comentarios asumiendo que estamos en España y que si no "
                   f"se especifica el año, es el actual ({datetime.now().year})?: {text}")
 
@@ -142,10 +143,16 @@ class ICSExporter:
 
         try:
             date_obj = parser.parse(entities['date'])
+            cest = pytz.timezone("Europe/Madrid")
+            if date_obj.tzinfo is None:
+                date_obj = cest.localize(date_obj)
+            else:
+                date_obj = date_obj.astimezone(cest)
+            
             calendar = Calendar()
             event = Event()
-            event.begin = date_obj.strftime("%Y%m%dT%H%M%SZ")  # Correct format for ICS
-
+            
+            event.begin = date_obj
             event.name = entities.get("summary", "Evento Desconocido")
             event.location = entities.get("location", "Ubicación Desconocida")
             event.description = entities.get("description", "No description provided")
@@ -153,8 +160,12 @@ class ICSExporter:
             calendar.events.add(event)
 
             calendar_data = calendar.serialize()
-            output_path.write_text(calendar_data)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(calendar_data)
+            
+            logging.info(f"ICS file exported successfully preserving CEST timezone: {output_path}")
+            logging.info(f"Exported date: {date_obj}, Timezone: {date_obj.tzinfo}")
         except parser.ParserError as e:
             logging.error(f"Error parsing date for ICS export: {e}")
         except Exception as e:
-            logging.error(f"An unexpected error occurred while exporting the ICS: {e}")
+            logging.error(f"An unexpected error occurred while exporting the ICS: {e}", exc_info=True)

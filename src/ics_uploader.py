@@ -8,6 +8,7 @@ import imghdr
 from PIL import Image
 import io
 from time import sleep, time
+from datetime import datetime, timedelta
 
 def extract_event_details_from_ics(ics_file):
     try:
@@ -15,18 +16,37 @@ def extract_event_details_from_ics(ics_file):
             gcal = Calendar.from_ical(f.read())
             for component in gcal.walk():
                 if component.name == "VEVENT":
+                    start = component.get('DTSTART').dt
+                    end = component.get('DTEND', component.get('DTSTART')).dt
+                    
+                    # Manejar eventos de varios días
+                    is_multi_day = False
+                    if isinstance(start, datetime) and isinstance(end, datetime):
+                        duration = end - start
+                        is_multi_day = duration.days > 0
+
+                    # Manejar eventos recurrentes
+                    recurrence = component.get('RRULE')
+                    recurrence_info = None
+                    if recurrence:
+                        recurrence_info = vRecur.from_ical(recurrence).to_ical().decode()
+
                     event_details = {
                         'title': str(component.get('SUMMARY')),
-                        'description': str(component.get('DESCRIPTION')),
+                        'description': str(component.get('DESCRIPTION', '')),
                         'place_name': str(component.get('LOCATION')).split(",")[0],
                         'place_address': str(component.get('LOCATION')),
-                        'start_datetime': int(component.get('DTSTART').dt.timestamp()),
+                        'start_datetime': int(start.timestamp()),
+                        'end_datetime': int(end.timestamp()) if end else None,
+                        'is_multi_day': is_multi_day,
+                        'recurrence': recurrence_info
                     }
                     logging.info(f"Event details extracted: {event_details}")
                     return event_details
     except Exception as e:
         logging.error(f"Failed to extract event details from ICS file: {e}")
     return None
+
 
 def save_to_file(data, file_path):
     try:
@@ -59,7 +79,6 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
 
     data = {
         'title': event_details['title'],
-        'description': event_details['description'] if event_details['description'] else 'None',
         'place_name': event_details['place_name'],
         'place_address': event_details['place_address'],
         'place_latitude': str(event_details.get('place_latitude', '')),
@@ -68,6 +87,10 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
         'tags[]': '',
         'multidate': 'false',
     }
+
+    # Add description if it exists and is not empty
+    if event_details.get('description') and event_details['description'].strip():
+        data['description'] = event_details['description'].strip()
 
     headers = {}
     if api_token:
@@ -80,17 +103,7 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     save_to_file(data, file_path)
 
     # Format the payload for multipart/form-data
-    files = {
-        'title': (None, data['title']),
-        'description': (None, data['description']),
-        'place_name': (None, data['place_name']),
-        'place_address': (None, data['place_address']),
-        'place_latitude': (None, data['place_latitude']),
-        'place_longitude': (None, data['place_longitude']),
-        'start_datetime': (None, data['start_datetime']),
-        'tags[]': (None, data['tags[]']),
-        'multidate': (None, data['multidate']),
-    }
+    files = {key: ("", value) for key, value in data.items()}
 
     if image_path and Path(image_path).exists():
         img_type = imghdr.what(image_path)
@@ -110,7 +123,6 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
 
     while retries < max_retries and total_wait_time < max_wait_time:
         try:
-            logging.info(f"Files: {files}")
             response = requests.post(api_url, files=files, headers=headers)
             logging.info(f'Event sent. Status Code: {response.status_code}, Response: {response.text}')
             

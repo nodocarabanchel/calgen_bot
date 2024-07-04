@@ -29,11 +29,6 @@ google_document_ai:
 telegram_bot:
   use: true  # Usar bot de Telegram para notificaciones (true/false)
   token: "telegram_bot_token"  # Token del bot de Telegram
-  chat_ids:  # Lista de ID de chat para enviar mensajes
-    - "telegram_chat_id_1"
-    - "telegram_chat_id_2"
-    - "telegram_chat_id_3"
-  download_tracker_path: "download_tracker/download_tracker.txt"
   offset_path: "offset.json"
   start_date: null  # Puede ser null si no se especifica
   end_date: null
@@ -46,3 +41,22 @@ gancio_api:
 # Configuración de la API de OpenCage
 opencage_api:
   key: "your_opencage_api_key_here"
+
+# Configuración de SQLite
+sqlite_db_path: "tracker.db"
+
+# Configuración de SMTP
+smtp:
+  host: ""
+  port: 587
+  user: ""
+  password: ""
+  from: ""
+  to: ""
+
+# Configuración de rutas de directorios
+directories:
+  images: "./images"
+  ics: "./ics"
+  download_tracker: "./download_tracker"
+  plain_text: "./plain_text"
