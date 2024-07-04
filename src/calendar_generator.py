@@ -11,7 +11,6 @@ import easyocr
 import pytesseract
 from ics import Calendar, Event
 from groq import Groq
-import ollama
 import re
 import pytz
 
