@@ -13,20 +13,20 @@ async def main():
     
     tracker = SQLiteTracker(config["sqlite_db_path"])
     
-    if config["telegram_bot"]["use"]:
-        bot = TelegramBot(
-            config["telegram_bot"]["token"],
-            config["telegram_bot"]["chat_ids"],
-            config["telegram_bot"]["offset_path"],
-            tracker
-        )
-        await bot.download_images(config["directories"]["images"])
+    bot = TelegramBot(
+        config["telegram_bot"]["token"],
+        config["telegram_bot"]["offset_path"],
+        tracker
+    )
     
     images_folder = Path(config["directories"]["images"])
     text_output_folder = Path(config["directories"]["plain_text"])
     ics_output_folder = Path(config["directories"]["ics"])
     text_output_folder.mkdir(exist_ok=True)
     ics_output_folder.mkdir(exist_ok=True)
+    
+    # Descarga imágenes de todos los chats accesibles
+    await bot.download_images(config["directories"]["images"])
     
     image_files = [img_file for img_file in images_folder.iterdir() if img_file.suffix.lower() in OCRReader.SUPPORTED_FORMATS]
     ocr_service = config["ocr_service"]
