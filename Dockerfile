@@ -46,7 +46,8 @@ RUN chmod +x /app/cron_script.sh
 # Configurar cron para usar el nuevo script
 RUN (crontab -l 2>/dev/null; echo "0 * * * * /app/cron_script.sh") | crontab -
 
-RUN chmod 0644 /var/log/cron.log
+# Crear directorio de logs
+RUN mkdir -p /app/logs && chmod 755 /app/logs
 
 # Copiar y configurar script de verificación de errores
 COPY src/check_errors.sh /app/check_errors.sh
