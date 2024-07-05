@@ -1,8 +1,7 @@
 FROM python:3.11-slim-bullseye
-
 WORKDIR /app
 
-# Instalar dependencias del sistema
+# Instalar dependencias del sistema y herramientas de depuración
 RUN apt-get update && apt-get install -y \
     cron \
     tesseract-ocr \
@@ -14,7 +13,13 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     libffi-dev \
     python3-dev \
-    gcc
+    gcc \
+    procps \
+    vim \
+    curl
+
+# Instalar Poetry
+RUN pip install poetry
 
 # Copiar archivos de configuración y código fuente
 COPY pyproject.toml poetry.lock ./
@@ -22,15 +27,25 @@ COPY src/ ./src/
 COPY settings.yaml ./
 COPY msmtprc /etc/msmtprc
 
-# Instalar Poetry y dependencias del proyecto
-RUN pip install --no-cache-dir poetry
-RUN poetry config virtualenvs.create false
-RUN poetry install
+# Instalar dependencias del proyecto
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi
 
 # Configurar permisos y tareas cron
 RUN chmod 600 /etc/msmtprc
 RUN touch /var/log/cron.log
-RUN (crontab -l 2>/dev/null; echo "0 * * * * cd /app && poetry run python src/main.py >> /var/log/cron.log 2>&1 && /app/check_errors.sh") | crontab -
+
+# Crear script para cron
+RUN echo '#!/bin/bash\n\
+cd /app\n\
+poetry run python src/main.py >> /var/log/cron.log 2>&1\n\
+/app/check_errors.sh' > /app/cron_script.sh
+
+RUN chmod +x /app/cron_script.sh
+
+# Configurar cron para usar el nuevo script
+RUN (crontab -l 2>/dev/null; echo "0 * * * * /app/cron_script.sh") | crontab -
+
 RUN chmod 0644 /var/log/cron.log
 
 # Copiar y configurar script de verificación de errores
