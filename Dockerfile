@@ -30,7 +30,7 @@ RUN poetry install
 # Configurar permisos y tareas cron
 RUN chmod 600 /etc/msmtprc
 RUN touch /var/log/cron.log
-RUN (crontab -l 2>/dev/null; echo "0 0 * * * cd /app && poetry run python src/main.py >> /var/log/cron.log 2>&1 && /app/check_errors.sh") | crontab -
+RUN (crontab -l 2>/dev/null; echo "0 * * * * cd /app && poetry run python src/main.py >> /var/log/cron.log 2>&1 && /app/check_errors.sh") | crontab -
 RUN chmod 0644 /var/log/cron.log
 
 # Copiar y configurar script de verificación de errores
