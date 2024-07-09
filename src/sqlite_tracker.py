@@ -11,19 +11,24 @@ class SQLiteTracker:
     def create_tables(self):
         cursor = self.conn.cursor()
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS downloaded_images (
-                file_id TEXT PRIMARY KEY
-            )
+        CREATE TABLE IF NOT EXISTS downloaded_images (
+            file_id TEXT PRIMARY KEY
+        )
         ''')
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS sent_events (
-                event_id TEXT PRIMARY KEY
-            )
+        CREATE TABLE IF NOT EXISTS sent_events (
+            event_id TEXT PRIMARY KEY
+        )
         ''')
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS processed_images (
-                image_name TEXT PRIMARY KEY
-            )
+        CREATE TABLE IF NOT EXISTS processed_images (
+            image_name TEXT PRIMARY KEY
+        )
+        ''')
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS event_titles (
+            title TEXT PRIMARY KEY
+        )
         ''')
         self.conn.commit()
 
@@ -55,6 +60,16 @@ class SQLiteTracker:
     def mark_image_as_processed(self, image_name):
         cursor = self.conn.cursor()
         cursor.execute('INSERT OR IGNORE INTO processed_images (image_name) VALUES (?)', (image_name,))
+        self.conn.commit()
+
+    def is_event_title_exists(self, title):
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT 1 FROM event_titles WHERE title = ?', (title,))
+        return cursor.fetchone() is not None
+
+    def add_event_title(self, title):
+        cursor = self.conn.cursor()
+        cursor.execute('INSERT OR IGNORE INTO event_titles (title) VALUES (?)', (title,))
         self.conn.commit()
 
     def close(self):

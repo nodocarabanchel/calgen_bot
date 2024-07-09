@@ -25,7 +25,6 @@ async def main():
     text_output_folder.mkdir(exist_ok=True)
     ics_output_folder.mkdir(exist_ok=True)
     
-    # Descarga imágenes de todos los chats accesibles
     await bot.download_images(config["directories"]["images"])
     
     image_files = [img_file for img_file in images_folder.iterdir() if img_file.suffix.lower() in OCRReader.SUPPORTED_FORMATS]
@@ -54,14 +53,20 @@ async def main():
                     text_file.write(combined_text)
                 extracted_data = extractor.extract_event_info(combined_text)
                 if extracted_data and all([extracted_data.get('summary'), extracted_data.get('dtstart'), extracted_data.get('location')]):
-                    exporter.export({
-                        'summary': extracted_data['summary'],
-                        'date': extracted_data['dtstart'],
-                        'location': extracted_data['location'],
-                        'description': caption  # Use caption as description
-                    }, ics_file_path)
-                    logging.info(f"ICS file successfully generated: {img_file.name}")
-                    tracker.mark_image_as_processed(img_file.name)
+                    # Check if an event with this title already exists
+                    if not tracker.is_event_title_exists(extracted_data['summary']):
+                        exporter.export({
+                            'summary': extracted_data['summary'],
+                            'date': extracted_data['dtstart'],
+                            'location': extracted_data['location'],
+                            'description': caption  # Use caption as description
+                        }, ics_file_path)
+                        logging.info(f"ICS file successfully generated: {img_file.name}")
+                        tracker.mark_image_as_processed(img_file.name)
+                        # Add the event title to the tracker
+                        tracker.add_event_title(extracted_data['summary'])
+                    else:
+                        logging.info(f"Skipping duplicate event: {extracted_data['summary']}")
                 else:
                     logging.warning(f"Failed to extract complete data for image {img_file.name}")
         else:
@@ -74,11 +79,11 @@ async def main():
             event_id = f"{event_details['title']}_{event_details['start_datetime']}_{event_details['place_name']}"
             if not tracker.is_event_sent(event_id):
                 base_filename = ics_file.stem
-                image_file = images_folder / f"{base_filename}.jpg"  # Asume que la imagen es jpg
+                image_file = images_folder / f"{base_filename}.jpg"  # Assume image is jpg
                 if image_file.exists():
                     response = send_event(config, event_details, base_filename, str(image_file))
                 else:
-                    response = send_event(config, event_details, base_filename)  # Sin imagen
+                    response = send_event(config, event_details, base_filename)  # Without image
                 
                 if response and response.status_code == 200:
                     tracker.mark_event_as_sent(event_id)
