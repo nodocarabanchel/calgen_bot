@@ -35,6 +35,7 @@ async def main():
     extractor = EntityExtractor(config)
     exporter = ICSExporter()
     
+    processed_events = 0
     for img_file in image_files:
         if not tracker.is_image_processed(img_file.name):
             text_file_path = text_output_folder / (img_file.stem + '.txt')
@@ -53,18 +54,17 @@ async def main():
                     text_file.write(combined_text)
                 extracted_data = extractor.extract_event_info(combined_text)
                 if extracted_data and all([extracted_data.get('summary'), extracted_data.get('dtstart'), extracted_data.get('location')]):
-                    # Check if an event with this title already exists
                     if not tracker.is_event_title_exists(extracted_data['summary']):
                         exporter.export({
                             'summary': extracted_data['summary'],
                             'date': extracted_data['dtstart'],
                             'location': extracted_data['location'],
-                            'description': caption  # Use caption as description
+                            'description': caption
                         }, ics_file_path)
                         logging.info(f"ICS file successfully generated: {img_file.name}")
                         tracker.mark_image_as_processed(img_file.name)
-                        # Add the event title to the tracker
                         tracker.add_event_title(extracted_data['summary'])
+                        processed_events += 1
                     else:
                         logging.info(f"Skipping duplicate event: {extracted_data['summary']}")
                 else:
@@ -72,22 +72,26 @@ async def main():
         else:
             logging.info(f"Skipping already processed image: {img_file.name}")
     
+    logging.info(f"Total new events processed from images: {processed_events}")
+    
     ics_files = [ics_file for ics_file in ics_output_folder.iterdir() if ics_file.suffix.lower() == '.ics']
+    sent_events = 0
     for ics_file in ics_files:
         event_details = extract_event_details_from_ics(ics_file)
         if event_details:
             event_id = f"{event_details['title']}_{event_details['start_datetime']}_{event_details['place_name']}"
             if not tracker.is_event_sent(event_id):
                 base_filename = ics_file.stem
-                image_file = images_folder / f"{base_filename}.jpg"  # Assume image is jpg
+                image_file = images_folder / f"{base_filename}.jpg"
                 if image_file.exists():
                     response = send_event(config, event_details, base_filename, str(image_file))
                 else:
-                    response = send_event(config, event_details, base_filename)  # Without image
+                    response = send_event(config, event_details, base_filename)
                 
                 if response and response.status_code == 200:
                     tracker.mark_event_as_sent(event_id)
                     logging.info(f"Event sent and marked as processed: {event_id}")
+                    sent_events += 1
                 else:
                     logging.warning(f"Failed to send event: {event_id}")
             else:
@@ -95,6 +99,7 @@ async def main():
         else:
             logging.warning(f'Failed to extract event details from {ics_file.name}')
     
+    logging.info(f"Total events sent in this execution: {sent_events}")
     logging.info("All processes completed successfully.")
     tracker.close()
 
