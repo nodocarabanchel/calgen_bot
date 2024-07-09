@@ -34,11 +34,11 @@ RUN poetry config virtualenvs.create false \
 # Configurar permisos y tareas cron
 RUN touch /var/log/cron.log && chmod 666 /var/log/cron.log
 
-# Crear archivo de log para el cron job
-RUN touch /app/cron_job.log && chmod 666 /app/cron_job.log
-
 # Crear directorio de logs
 RUN mkdir -p /app/logs && chmod 755 /app/logs
+
+# Crear archivo de log para el cron job
+RUN touch /app/logs/cron_job.log && chmod 666 /app/logs/cron_job.log
 
 # Crear script para cron
 COPY cron_script.sh /app/cron_script.sh

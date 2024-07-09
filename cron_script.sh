@@ -1,5 +1,5 @@
 #!/bin/bash
-LOG_FILE="/app/cron_job.log"
+LOG_FILE="/app/logs/cron_job.log"
 echo "Cron job started at $(date)" >> $LOG_FILE 2>&1
 cd /app
 export PATH="/root/.local/bin:/usr/local/bin:$PATH"
