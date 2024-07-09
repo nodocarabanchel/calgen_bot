@@ -11,6 +11,7 @@ from time import sleep, time
 from datetime import datetime, timedelta
 
 def extract_event_details_from_ics(ics_file):
+    events = []
     try:
         with open(ics_file, 'r') as f:
             gcal = Calendar.from_ical(f.read())
@@ -42,11 +43,12 @@ def extract_event_details_from_ics(ics_file):
                         'recurrence': recurrence_info
                     }
                     logging.info(f"Event details extracted: {event_details}")
-                    return event_details
+                    events.append(event_details)
+        return events
     except Exception as e:
         logging.error(f"Failed to extract event details from ICS file: {e}")
-    return None
-
+    return []
+ 
 
 def save_to_file(data, file_path):
     try:
@@ -121,12 +123,18 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     total_wait_time = 0
     max_wait_time = 300  # 5 minutes
 
+    retries = 0
+    total_wait_time = 0
+    max_wait_time = 300  # 5 minutes
+
     while retries < max_retries and total_wait_time < max_wait_time:
         try:
+            logging.info(f"Attempting to send event: {event_details['title']} (Attempt {retries + 1}/{max_retries})")
             response = requests.post(api_url, files=files, headers=headers)
             logging.info(f'Event sent. Status Code: {response.status_code}, Response: {response.text}')
             
             if response.status_code == 200:
+                logging.info(f"Successfully sent event: {event_details['title']}")
                 return response
             elif response.status_code == 404:
                 logging.error(f"404 Not Found: The endpoint {api_url} does not exist.")
@@ -144,7 +152,8 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
                 logging.error(f"Error {response.status_code}: {response.text}")
                 break
         except Exception as e:
-            logging.error(f"Failed to send event: {e}")
+            logging.error(f"Failed to send event {event_details['title']}: {e}")
             break
 
+    logging.warning(f"Failed to send event {event_details['title']} after {retries} attempts")
     return None

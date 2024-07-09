@@ -11,6 +11,8 @@ async def main():
     config = load_config()
     setup_logging(config)
     
+    logging.info("Starting main function")
+    
     tracker = SQLiteTracker(config["sqlite_db_path"])
     
     bot = TelegramBot(
@@ -25,9 +27,12 @@ async def main():
     text_output_folder.mkdir(exist_ok=True)
     ics_output_folder.mkdir(exist_ok=True)
     
+    logging.info("Checking for new images from Telegram")
     await bot.download_images(config["directories"]["images"])
     
     image_files = [img_file for img_file in images_folder.iterdir() if img_file.suffix.lower() in OCRReader.SUPPORTED_FORMATS]
+    logging.info(f"Found {len(image_files)} total images to process")
+    
     ocr_service = config["ocr_service"]
     google_config = config.get("google_document_ai")
     logging.info(f"Initializing OCR reader with service: {ocr_service}")
@@ -38,6 +43,7 @@ async def main():
     processed_events = 0
     for img_file in image_files:
         if not tracker.is_image_processed(img_file.name):
+            logging.info(f"Processing image: {img_file.name}")
             text_file_path = text_output_folder / (img_file.stem + '.txt')
             ics_file_path = ics_output_folder / (img_file.stem + '.ics')
             text = reader.read(img_file)
@@ -52,9 +58,12 @@ async def main():
             if combined_text:
                 with open(text_file_path, 'w', encoding='utf-8') as text_file:
                     text_file.write(combined_text)
+                logging.info(f"Extracting event info from: {combined_text[:100]}...")  # Log the first 100 characters
                 extracted_data = extractor.extract_event_info(combined_text)
                 if extracted_data and all([extracted_data.get('summary'), extracted_data.get('dtstart'), extracted_data.get('location')]):
-                    if not tracker.is_event_title_exists(extracted_data['summary']):
+                    logging.info(f"Extracted data: {extracted_data}")
+                    event_id = f"{extracted_data['summary']}_{extracted_data['dtstart']}_{extracted_data['location']}"
+                    if not tracker.is_event_sent(event_id):
                         exporter.export({
                             'summary': extracted_data['summary'],
                             'date': extracted_data['dtstart'],
@@ -62,30 +71,37 @@ async def main():
                             'description': caption
                         }, ics_file_path)
                         logging.info(f"ICS file successfully generated: {img_file.name}")
-                        tracker.mark_image_as_processed(img_file.name)
                         tracker.add_event_title(extracted_data['summary'])
                         processed_events += 1
                     else:
-                        logging.info(f"Skipping duplicate event: {extracted_data['summary']}")
+                        logging.info(f"Skipping already processed event: {event_id}")
                 else:
                     logging.warning(f"Failed to extract complete data for image {img_file.name}")
+                    logging.warning(f"Extracted data: {extracted_data}")
+            else:
+                logging.warning(f"No text extracted from image {img_file.name}")
+            
+            tracker.mark_image_as_processed(img_file.name)
         else:
             logging.info(f"Skipping already processed image: {img_file.name}")
     
     logging.info(f"Total new events processed from images: {processed_events}")
     
     ics_files = [ics_file for ics_file in ics_output_folder.iterdir() if ics_file.suffix.lower() == '.ics']
+    logging.info(f"Found {len(ics_files)} ICS files to process")
+    
     sent_events = 0
     for ics_file in ics_files:
-        event_details = extract_event_details_from_ics(ics_file)
-        if event_details:
+        events = extract_event_details_from_ics(ics_file)
+        for event_details in events:
             event_id = f"{event_details['title']}_{event_details['start_datetime']}_{event_details['place_name']}"
             if not tracker.is_event_sent(event_id):
+                logging.info(f"Attempting to send event: {event_details['title']}")
                 base_filename = ics_file.stem
                 image_file = images_folder / f"{base_filename}.jpg"
                 if image_file.exists():
                     response = send_event(config, event_details, base_filename, str(image_file))
-                else:
+                else:   
                     response = send_event(config, event_details, base_filename)
                 
                 if response and response.status_code == 200:
@@ -96,9 +112,7 @@ async def main():
                     logging.warning(f"Failed to send event: {event_id}")
             else:
                 logging.info(f"Skipping already sent event: {event_id}")
-        else:
-            logging.warning(f'Failed to extract event details from {ics_file.name}')
-    
+
     logging.info(f"Total events sent in this execution: {sent_events}")
     logging.info("All processes completed successfully.")
     tracker.close()
@@ -106,12 +120,13 @@ async def main():
     # Clean up directories
     directories_to_clean = [
         config["directories"]["download_tracker"],
-        config["directories"]["images"],
         config["directories"]["plain_text"],
         config["directories"]["ics"],
         'api_data'
     ]
     clean_directories(directories_to_clean)
+
+    logging.info("Main function completed.")
 
 if __name__ == "__main__":
     asyncio.run(main())

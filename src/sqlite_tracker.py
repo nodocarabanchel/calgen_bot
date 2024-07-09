@@ -1,5 +1,4 @@
 import sqlite3
-import logging
 from pathlib import Path
 
 class SQLiteTracker:

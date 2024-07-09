@@ -142,7 +142,16 @@ class ICSExporter:
             return
 
         try:
-            date_obj = parser.parse(entities['date'])
+            date_str = entities['date']
+            logging.info(f"Attempting to parse date: {date_str}")
+            
+            # Intentar diferentes formatos de fecha
+            try:
+                date_obj = parser.parse(date_str)
+            except parser.ParserError:
+                # Si falla, intentar con un formato específico
+                date_obj = datetime.strptime(date_str, "%Y%m%dT%H%M%S")
+            
             cest = pytz.timezone("Europe/Madrid")
             if date_obj.tzinfo is None:
                 date_obj = cest.localize(date_obj)
@@ -165,7 +174,9 @@ class ICSExporter:
             
             logging.info(f"ICS file exported successfully preserving CEST timezone: {output_path}")
             logging.info(f"Exported date: {date_obj}, Timezone: {date_obj.tzinfo}")
-        except parser.ParserError as e:
+        except ValueError as e:
             logging.error(f"Error parsing date for ICS export: {e}")
+            logging.error(f"Problematic date string: {entities.get('date')}")
         except Exception as e:
             logging.error(f"An unexpected error occurred while exporting the ICS: {e}", exc_info=True)
+L
