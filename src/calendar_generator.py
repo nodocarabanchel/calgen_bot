@@ -179,4 +179,4 @@ class ICSExporter:
             logging.error(f"Problematic date string: {entities.get('date')}")
         except Exception as e:
             logging.error(f"An unexpected error occurred while exporting the ICS: {e}", exc_info=True)
-L
+

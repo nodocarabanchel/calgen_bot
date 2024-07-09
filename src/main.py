@@ -120,6 +120,7 @@ async def main():
 
     # Clean up directories
     directories_to_clean = [
+        config["directories"]["images"],
         config["directories"]["download_tracker"],
         config["directories"]["plain_text"],
         config["directories"]["ics"],

@@ -8,17 +8,34 @@ def load_config():
     with open("settings.yaml", "r") as file:
         return yaml.safe_load(file)
 
+import logging
+import sys
+
 def setup_logging(config):
-    log_file = config.get("logging", {}).get("log_file", "default.log")
-    log_level = config.get("logging", {}).get("log_level", "INFO").upper()
+    log_file = config.get("logging", {}).get("log_file", "/app/app.log")
+    log_level_str = config.get("logging", {}).get("log_level", "INFO").upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
+
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
         handlers=[
             logging.FileHandler(log_file),
-            logging.StreamHandler()
+            logging.StreamHandler(sys.stdout)
         ]
     )
+
+    # Configurar loggers específicos
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+
+    # Verificar la configuración
+    root_logger = logging.getLogger()
+    root_logger.info(f"Logging setup complete. Root logger level: {logging.getLevelName(root_logger.level)}")
+    root_logger.info(f"Log file: {log_file}")
+
+    # Forzar la salida del buffer
+    sys.stdout.flush()
 
 def get_geolocation(config, address):
     api_key = config["opencage_api"]["key"]
