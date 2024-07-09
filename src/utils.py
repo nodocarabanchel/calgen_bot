@@ -60,3 +60,4 @@ def clean_directories(directories):
                     item.unlink()
                 except Exception as e:
                     logging.error(f"Failed to delete file {item}: {e}")
+                    
