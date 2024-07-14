@@ -1,73 +1,84 @@
 import logging
-from telegram import Bot
+from telethon import TelegramClient
+from telethon.tl.types import InputPeerChannel
 from pathlib import Path
-import json
 import asyncio
+from datetime import datetime, timedelta, timezone
+from collections import defaultdict
 
 class TelegramBot:
-    def __init__(self, token, offset_path, tracker):
-        self.bot = Bot(token)
-        self.offset_path = Path(offset_path)
+    def __init__(self, api_id, api_hash, phone, session_file, tracker, channel_ids, start_date=None, max_posters_per_day=50):
+        self.client = TelegramClient(session_file, api_id, api_hash)
+        self.phone = phone
         self.tracker = tracker
-        self.offset = self.load_offset()
-        logging.info(f"Initialized with offset: {self.offset}")
+        self.channel_ids = channel_ids
+        self.max_posters_per_day = max_posters_per_day
+        
+        if start_date:
+            try:
+                self.start_date = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                logging.error(f"Invalid start_date format: {start_date}. Using last 24 hours.")
+                self.start_date = datetime.now(timezone.utc) - timedelta(days=1)
+        else:
+            self.start_date = datetime.now(timezone.utc) - timedelta(days=1)
+        
+        logging.info(f"Initialized TelegramClient with start date: {self.start_date}")
 
-    def load_offset(self):
-        if self.offset_path.exists():
-            with open(self.offset_path, 'r') as file:
-                data = json.load(file)
-                offset = data.get("offset", 0)
-                logging.info(f"Loaded offset: {offset}")
-                return offset
-        logging.info("No offset file found, starting from 0")
-        return 0
+    async def start(self):
+        await self.client.start(phone=self.phone)
+        logging.info("TelegramClient started")
 
-    def save_offset(self, new_offset):
-        with open(self.offset_path, 'w') as file:
-            json.dump({"offset": new_offset}, file)
-        logging.info(f"Saved offset: {new_offset}")
+    async def stop(self):
+        await self.client.disconnect()
+        logging.info("TelegramClient stopped")
 
     async def download_images(self, image_folder):
         image_folder_path = Path(image_folder)
         image_folder_path.mkdir(parents=True, exist_ok=True)
         new_images_downloaded = 0
+        daily_counts = defaultdict(int)
 
-        while True:
-            updates = await self.bot.get_updates(offset=self.offset, limit=100, timeout=60)
-            if not updates:
-                logging.info("No new updates available.")
-                break
+        for channel_id in self.channel_ids:
+            try:
+                entity = await self.client.get_entity(int(channel_id))
+                logging.info(f"Processing channel/group with ID: {channel_id}")
 
-            for update in updates:
-                self.offset = update.update_id + 1
-                message = update.message or update.channel_post
-                if message and message.photo:
-                    photo = message.photo[-1]
-                    if not self.tracker.is_image_downloaded(photo.file_id):
-                        try:
-                            file = await self.bot.get_file(photo.file_id)
-                            file_path = image_folder_path / f"{photo.file_id}.jpg"
-                            await file.download_to_drive(str(file_path))
-                            logging.info(f"New image saved to {file_path}")
-                            caption = message.caption or ""
-                            caption_file_path = image_folder_path / f"{photo.file_id}.txt"
-                            with open(caption_file_path, 'w', encoding='utf-8') as caption_file:
-                                caption_file.write(caption)
-                            self.tracker.mark_image_as_downloaded(photo.file_id)
-                            new_images_downloaded += 1
-                        except Exception as e:
-                            logging.error(f"Error downloading image: {e}")
-                    else:
-                        logging.info(f"Skipping already downloaded image: {photo.file_id}")
-            
-            self.save_offset(self.offset)
-            logging.info(f"Processed batch of updates. New offset: {self.offset}")
+                async for message in self.client.iter_messages(entity, reverse=True, offset_date=self.start_date):
+                    message_date = message.date.replace(tzinfo=timezone.utc)
+                    if message_date < self.start_date:
+                        break
 
-            if len(updates) < 100:
-                break
+                    message_date_str = message_date.strftime("%Y-%m-%d")
+                    if daily_counts[message_date_str] >= self.max_posters_per_day:
+                        logging.info(f"Reached max posters limit for {message_date_str}")
+                        continue
 
-            await asyncio.sleep(1)  # Small delay to avoid hitting rate limits
+                    if message.photo:
+                        if not self.tracker.is_image_downloaded(str(message.id)):
+                            try:
+                                file_path = image_folder_path / f"{message.id}.jpg"
+                                await message.download_media(file=str(file_path))
+                                logging.info(f"New image saved to {file_path}")
 
-        logging.info(f"Final offset after processing all updates: {self.offset}")
+                                caption = message.text or ""
+                                caption_file_path = image_folder_path / f"{message.id}.txt"
+                                with open(caption_file_path, 'w', encoding='utf-8') as caption_file:
+                                    caption_file.write(caption)
+
+                                self.tracker.mark_image_as_downloaded(str(message.id))
+                                new_images_downloaded += 1
+                                daily_counts[message_date_str] += 1
+
+                                if daily_counts[message_date_str] >= self.max_posters_per_day:
+                                    logging.info(f"Reached max posters limit for {message_date_str}")
+                            except Exception as e:
+                                logging.error(f"Error downloading image: {e}")
+                        else:
+                            logging.info(f"Skipping already downloaded image: {message.id}")
+
+            except Exception as e:
+                logging.error(f"Error processing channel/group with ID {channel_id}: {e}")
+
         logging.info(f"Total new images downloaded: {new_images_downloaded}")
         return new_images_downloaded

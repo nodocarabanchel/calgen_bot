@@ -140,6 +140,9 @@ ics/*
 api_data/*
 !api_data/.gitkeep
 
+# telethon sesion
+telethon_session.session
+
 # mac users
 .DS_Store
 

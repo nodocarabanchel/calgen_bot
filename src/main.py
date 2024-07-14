@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from utils import load_config, setup_logging, clean_directories
 from ics_uploader import extract_event_details_from_ics, send_event
 from calendar_generator import OCRReader, EntityExtractor, ICSExporter
@@ -15,22 +16,47 @@ async def main():
     
     tracker = SQLiteTracker(config["sqlite_db_path"])
     
-    bot = TelegramBot(
-        config["telegram_bot"]["token"],
-        config["telegram_bot"]["offset_path"],
-        tracker
-    )
-    
-    images_folder = Path(config["directories"]["images"])
-    text_output_folder = Path(config["directories"]["plain_text"])
-    ics_output_folder = Path(config["directories"]["ics"])
-    text_output_folder.mkdir(exist_ok=True)
-    ics_output_folder.mkdir(exist_ok=True)
-    
-    logging.info("Checking for new images from Telegram")
-    new_images = await bot.download_images(config["directories"]["images"])
-    logging.info(f"Downloaded {new_images} new images from Telegram")
-    
+    if config["telegram_bot"]["use"]:
+        start_date = config["telegram_bot"]["start_date"]
+        if start_date:
+            try:
+                start_date = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                logging.info(f"Using provided start date: {start_date}")
+            except ValueError:
+                logging.error(f"Invalid start_date format: {start_date}. Using last 24 hours.")
+                start_date = datetime.now(timezone.utc) - timedelta(days=1)
+        else:
+            start_date = datetime.now(timezone.utc) - timedelta(days=1)
+            logging.info(f"No start date provided. Using last 24 hours: {start_date}")
+        
+        max_posters_per_day = config["telegram_bot"].get("max_posters_per_day", 50)
+        
+        bot = TelegramBot(
+            config["telegram_bot"]["api_id"],
+            config["telegram_bot"]["api_hash"],
+            config["telegram_bot"]["phone"],
+            config["telegram_bot"]["session_file"],
+            tracker,
+            config["telegram_bot"]["channel_ids"],
+            start_date.strftime("%Y-%m-%d") if start_date else None,
+            max_posters_per_day
+        )
+        
+        images_folder = Path(config["directories"]["images"])
+        text_output_folder = Path(config["directories"]["plain_texts"])
+        ics_output_folder = Path(config["directories"]["ics"])
+        text_output_folder.mkdir(exist_ok=True)
+        ics_output_folder.mkdir(exist_ok=True)
+        
+        logging.info("Checking for new images from Telegram")
+        await bot.start()
+        new_images = await bot.download_images(config["directories"]["images"])
+        await bot.stop()
+        logging.info(f"Downloaded {new_images} new images from Telegram")
+    else:
+        logging.info("Telegram bot is disabled in settings")
+        new_images = 0
+        
     # Process newly downloaded images
     new_image_files = [img_file for img_file in images_folder.iterdir() 
                        if img_file.suffix.lower() in OCRReader.SUPPORTED_FORMATS 
@@ -122,7 +148,7 @@ async def main():
     directories_to_clean = [
         config["directories"]["images"],
         config["directories"]["download_tracker"],
-        config["directories"]["plain_text"],
+        config["directories"]["plain_texts"],
         config["directories"]["ics"],
         'api_data'
     ]

@@ -55,7 +55,7 @@ COPY src/check_errors.sh /app/check_errors.sh
 RUN chmod +x /app/check_errors.sh
 
 # Definir volúmenes
-VOLUME ["/app/images", "/app/ics", "/app/download_tracker", "/app/plain_text", "/app/sqlite_db"]
+VOLUME ["/app/images", "/app/ics", "/app/download_tracker", "/app/plain_texts", "/app/sqlite_db"]
 
 # Crear script de inicio
 RUN echo '#!/bin/bash\n\

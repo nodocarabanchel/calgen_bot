@@ -25,13 +25,19 @@ google_document_ai:
   processor_id: "processor_id_value"  # ID del procesador de Document AI
   credentials_path: "credentials.json"  # Ruta al archivo de credenciales JSON
 
-# Configuración del bot de Telegram
+# Configuración del bot de Telegram (actualizado para Telethon)
 telegram_bot:
   use: true  # Usar bot de Telegram para notificaciones (true/false)
-  token: "telegram_bot_token"  # Token del bot de Telegram
+  api_id: "your_api_id_here"  # API ID obtenido de https://my.telegram.org/apps
+  api_hash: "your_api_hash_here"  # API Hash obtenido de https://my.telegram.org/apps
+  phone: "your_phone_number_here"  # Número de teléfono asociado a tu cuenta de Telegram
+  session_file: "telethon_session"  # Nombre del archivo de sesión de Telethon
   offset_path: "offset.json"
-  start_date: null  # Puede ser null si no se especifica
-  end_date: null
+  max_posters_per_day: 50
+  start_date: null  # Puede ser null si no se especifica. el formato es "YYYY-MM-DD"
+  channel_ids:
+    - -1001234567890
+    - -1009876543210
 
 # Configuración de la API de Gancio
 gancio_api:
@@ -59,4 +65,4 @@ directories:
   images: "./images"
   ics: "./ics"
   download_tracker: "./download_tracker"
-  plain_text: "./plain_text"
+  plain_texts: "./plain_texts"
