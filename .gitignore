@@ -163,3 +163,6 @@ tracker.db
 
 # offset
 offset.json
+
+# db
+event_tracker.db
