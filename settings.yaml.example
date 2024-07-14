@@ -48,8 +48,8 @@ gancio_api:
 opencage_api:
   key: "your_opencage_api_key_here"
 
-# Configuración de SQLite
-sqlite_db_path: "tracker.db"
+# Event tracker
+event_tracker_db_path: "event_tracker.db"
 
 # Configuración de SMTP
 smtp:

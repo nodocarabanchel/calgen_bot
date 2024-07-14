@@ -6,7 +6,8 @@ from utils import load_config, setup_logging, clean_directories
 from ics_uploader import extract_event_details_from_ics, send_event
 from calendar_generator import OCRReader, EntityExtractor, ICSExporter
 from telegram_bot import TelegramBot
-from sqlite_tracker import SQLiteTracker
+from sqlite_tracker import DatabaseManager
+from event_fingerprint import EventFingerprint
 
 async def main():
     config = load_config()
@@ -14,7 +15,7 @@ async def main():
     
     logging.info("Starting main function")
     
-    tracker = SQLiteTracker(config["sqlite_db_path"])
+    db_manager = DatabaseManager(config["event_tracker_db_path"])
     
     if config["telegram_bot"]["use"]:
         start_date = config["telegram_bot"]["start_date"]
@@ -29,17 +30,15 @@ async def main():
             start_date = datetime.now(timezone.utc) - timedelta(days=1)
             logging.info(f"No start date provided. Using last 24 hours: {start_date}")
         
-        max_posters_per_day = config["telegram_bot"].get("max_posters_per_day", 50)
-        
         bot = TelegramBot(
             config["telegram_bot"]["api_id"],
             config["telegram_bot"]["api_hash"],
             config["telegram_bot"]["phone"],
             config["telegram_bot"]["session_file"],
-            tracker,
+            db_manager,
             config["telegram_bot"]["channel_ids"],
             start_date.strftime("%Y-%m-%d") if start_date else None,
-            max_posters_per_day
+            config["telegram_bot"].get("max_posters_per_day", 50)
         )
         
         images_folder = Path(config["directories"]["images"])
@@ -56,11 +55,11 @@ async def main():
     else:
         logging.info("Telegram bot is disabled in settings")
         new_images = 0
-        
+    
     # Process newly downloaded images
     new_image_files = [img_file for img_file in images_folder.iterdir() 
                        if img_file.suffix.lower() in OCRReader.SUPPORTED_FORMATS 
-                       and not tracker.is_image_processed(img_file.name)]
+                       and not db_manager.is_image_processed(img_file.name)]
     logging.info(f"Found {len(new_image_files)} new images to process")
     
     ocr_service = config["ocr_service"]
@@ -87,30 +86,41 @@ async def main():
         if combined_text:
             with open(text_file_path, 'w', encoding='utf-8') as text_file:
                 text_file.write(combined_text)
-            logging.info(f"Extracting event info from: {combined_text[:100]}...")  # Log the first 100 characters
+            logging.info(f"Extracting event info from: {combined_text[:100]}...")
             extracted_data = extractor.extract_event_info(combined_text)
             if extracted_data and all([extracted_data.get('summary'), extracted_data.get('dtstart'), extracted_data.get('location')]):
                 logging.info(f"Extracted data: {extracted_data}")
-                event_id = f"{extracted_data['summary']}_{extracted_data['dtstart']}_{extracted_data['location']}"
-                if not tracker.is_event_sent(event_id):
-                    exporter.export({
-                        'summary': extracted_data['summary'],
-                        'date': extracted_data['dtstart'],
-                        'location': extracted_data['location'],
-                        'description': caption
-                    }, ics_file_path)
-                    logging.info(f"ICS file successfully generated: {img_file.name}")
-                    tracker.add_event_title(extracted_data['summary'])
-                    processed_events += 1
-                else:
-                    logging.info(f"Skipping already processed event: {event_id}")
+                
+                try:
+                    if db_manager.is_duplicate_event(extracted_data):
+                        logging.info(f"Skipping duplicate event: {extracted_data['summary']}")
+                    else:
+                        event_id = f"{extracted_data['summary']}_{extracted_data['dtstart']}_{extracted_data['location']}"
+                        if not db_manager.is_event_sent(event_id):
+                            exporter.export({
+                                'summary': extracted_data['summary'],
+                                'date': extracted_data['dtstart'],
+                                'location': extracted_data['location'],
+                                'description': extracted_data.get('description', '')
+                            }, ics_file_path)
+                            logging.info(f"ICS file successfully generated: {img_file.name}")
+                            db_manager.add_event_title(extracted_data['summary'])
+                            db_manager.add_event(extracted_data)
+                            processed_events += 1
+                        else:
+                            logging.info(f"Skipping already processed event: {event_id}")
+                except Exception as e:
+                    logging.error(f"Error processing event data: {str(e)}")
+                    logging.error(f"Problematic data: {extracted_data}")
+                    for key, value in extracted_data.items():
+                        logging.error(f"{key}: {value}")
             else:
                 logging.warning(f"Failed to extract complete data for image {img_file.name}")
                 logging.warning(f"Extracted data: {extracted_data}")
         else:
             logging.warning(f"No text extracted from image {img_file.name}")
         
-        tracker.mark_image_as_processed(img_file.name)
+        db_manager.mark_image_as_processed(img_file.name)
 
     logging.info(f"Total new events processed from images: {processed_events}")
     
@@ -122,7 +132,7 @@ async def main():
         events = extract_event_details_from_ics(ics_file)
         for event_details in events:
             event_id = f"{event_details['title']}_{event_details['start_datetime']}_{event_details['place_name']}"
-            if not tracker.is_event_sent(event_id):
+            if not db_manager.is_event_sent(event_id):
                 logging.info(f"Attempting to send event: {event_details['title']}")
                 base_filename = ics_file.stem
                 image_file = images_folder / f"{base_filename}.jpg"
@@ -132,7 +142,7 @@ async def main():
                     response = send_event(config, event_details, base_filename)
                 
                 if response and response.status_code == 200:
-                    tracker.mark_event_as_sent(event_id)
+                    db_manager.mark_event_as_sent(event_id)
                     logging.info(f"Event sent and marked as processed: {event_id}")
                     sent_events += 1
                 else:
@@ -142,7 +152,7 @@ async def main():
 
     logging.info(f"Total events sent in this execution: {sent_events}")
     logging.info("All processes completed successfully.")
-    tracker.close()
+    db_manager.close()
 
     # Clean up directories
     directories_to_clean = [
