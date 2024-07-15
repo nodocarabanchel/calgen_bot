@@ -136,7 +136,7 @@ COPY src/check_errors.sh /app/check_errors.sh
 RUN chmod +x /app/check_errors.sh
 
 # Configurar volúmenes
-VOLUME ["/app/images", "/app/ics", "/app/download_tracker", "/app/plain_text"]
+VOLUME ["/app/images", "/app/ics", "/app/download_tracker", "/app/plain_texts"]
 
 # Comando para iniciar cron y mantener el contenedor en ejecución
 CMD cron && tail -f /var/log/cron.log
@@ -157,7 +157,7 @@ services:
       - ./images:/app/images
       - ./ics:/app/ics
       - ./download_tracker:/app/download_tracker
-      - ./plain_text:/app/plain_text
+      - ./plain_texts:/app/plain_texts
     environment:
       - SMTP_HOST=smtp.gmail.com
       - SMTP_PORT=587
