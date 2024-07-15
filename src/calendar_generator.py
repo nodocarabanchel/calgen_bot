@@ -101,28 +101,34 @@ class EntityExtractor:
 
         retries = 0
         while retries < self.max_retries:
-            if model_type == 'groq' and self.client:
-                chat_completion = self.client.chat.completions.create(
-                    messages=[{"role": "user", "content": prompt}],
-                    model=self.config['external_api']['model_name'],
-                )
-                content = chat_completion.choices[0].message.content
-            elif model_type == 'local_model' and self.config['local_model']['use']:
-                response = ollama.chat(
-                    model=self.config['local_model']['model_name'],
-                    messages=[{'role': 'user', 'content': prompt}]
-                )
-                content = response['message']['content'].strip() if 'message' in response and 'content' in response['message'] else "Datos no encontrados"
+            try:
+                if model_type == 'groq' and self.client:
+                    logging.debug(f"Sending request to Groq API with prompt: {prompt}")
+                    chat_completion = self.client.chat.completions.create(
+                        messages=[{"role": "user", "content": prompt}],
+                        model=self.config['external_api']['model_name'],
+                    )
+                    logging.debug(f"Received response from Groq API: {chat_completion}")
+                    content = chat_completion.choices[0].message.content
+                elif model_type == 'local_model' and self.config['local_model']['use']:
+                    response = ollama.chat(
+                        model=self.config['local_model']['model_name'],
+                        messages=[{'role': 'user', 'content': prompt}]
+                    )
+                    content = response['message']['content'].strip() if 'message' in response and 'content' in response['message'] else "Datos no encontrados"
 
-            summary = self.extract_field("SUMMARY", content)
-            dtstart = self.extract_field("DTSTART", content)
-            location = self.extract_field("LOCATION", content)
-            description = text  # Use the extracted text as the description
+                summary = self.extract_field("SUMMARY", content)
+                dtstart = self.clean_date(self.extract_field("DTSTART", content))
+                location = self.extract_field("LOCATION", content)
+                description = text  # Use the extracted text as the description
 
-            if all([summary, dtstart, location]):
-                return {'summary': summary, 'dtstart': dtstart, 'location': location, 'description': description}
+                if all([summary, dtstart, location]):
+                    return {'summary': summary, 'dtstart': dtstart, 'location': location, 'description': description}
 
-            retries += 1
+                retries += 1
+            except Exception as e:
+                logging.error(f"Error during event info extraction: {e}")
+                retries += 1
 
         logging.error("Failed to extract complete event info after maximum retries.")
         return None
@@ -135,6 +141,15 @@ class EntityExtractor:
             return match.group(1).strip()
         return None
 
+    @staticmethod
+    def clean_date(date_str):
+        if date_str:
+            # Remove any unwanted characters from the date string
+            clean_date_str = re.sub(r'[^\dT]', '', date_str)
+            if re.match(r'\d{8}T\d{6}', clean_date_str):
+                return clean_date_str
+        return None
+    
 class ICSExporter:
     def export(self, entities: Dict[str, str], output_path: Path):
         if not entities.get('date'):
@@ -178,5 +193,5 @@ class ICSExporter:
             logging.error(f"Error parsing date for ICS export: {e}")
             logging.error(f"Problematic date string: {entities.get('date')}")
         except Exception as e:
-            logging.error(f"An unexpected error occurred while exporting the ICS: {e}", exc_info=True)
+            logging.error(f"An unexpected error occurred while exporting the ICS: {e}", exc_info=True)  
 

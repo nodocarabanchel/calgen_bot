@@ -65,8 +65,6 @@ class TelegramBot:
                                     logging.info(f"Reached max posters limit for {date_key}")
                             except Exception as e:
                                 logging.error(f"Error downloading image: {e}")
-                        else:
-                            logging.info(f"Skipping already downloaded image: {message.id}")
 
             except Exception as e:
                 logging.error(f"Error processing channel/group with ID {channel_id}: {e}")

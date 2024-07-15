@@ -3,7 +3,7 @@ from pathlib import Path
 import requests
 import json
 from icalendar import Calendar
-from utils import get_geolocation, save_to_file
+from utils import get_geolocation, save_to_file, load_config
 import imghdr
 from PIL import Image
 import io
@@ -40,8 +40,18 @@ def extract_event_details_from_ics(ics_file):
                         'start_datetime': int(start.timestamp()),
                         'end_datetime': int(end.timestamp()) if end else None,
                         'is_multi_day': is_multi_day,
-                        'recurrence': recurrence_info
+                        'recurrence': recurrence_info,
+                        'categories': []
                     }
+
+                    # Add geolocation and categories if available
+                    config = load_config()
+                    location = get_geolocation(config, event_details['place_address'])
+                    if location:
+                        event_details['place_latitude'] = location['latitude']
+                        event_details['place_longitude'] = location['longitude']
+                        event_details['categories'] = location['categories']
+
                     logging.info(f"Event details extracted: {event_details}")
                     events.append(event_details)
         return events
@@ -72,7 +82,7 @@ def compress_image(image_path, max_size_kb=500):
 def send_event(config, event_details, base_filename, image_path=None, max_retries=5):
     api_url = config["gancio_api"]["url"].rstrip('"')  # Remove any trailing quotes
     api_token = config["gancio_api"].get("token")
-    lat, lng = get_geolocation(config, event_details['place_address'])
+    lat, lng = event_details.get('place_latitude'), event_details.get('place_longitude')
     if lat is not None and lng is not None:
         event_details['place_latitude'] = lat
         event_details['place_longitude'] = lng
@@ -86,9 +96,14 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
         'place_latitude': str(event_details.get('place_latitude', '')),
         'place_longitude': str(event_details.get('place_longitude', '')),
         'start_datetime': str(event_details['start_datetime']),
-        'tags[]': '',
-        'multidate': 'false',
+        'multidate': 'false'
     }
+    
+    # Add tags if categories are available
+    categories = event_details.get('categories', [])
+    if categories:
+        for i, category in enumerate(categories):
+            data[f'tags[{i}]'] = category
 
     # Add description if it exists and is not empty
     if event_details.get('description') and event_details['description'].strip():
@@ -118,10 +133,6 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
             logging.warning(f"Unsupported image type: {img_type}")
     else:
         logging.warning("Image path is not provided or does not exist.")
-
-    retries = 0
-    total_wait_time = 0
-    max_wait_time = 300  # 5 minutes
 
     retries = 0
     total_wait_time = 0
