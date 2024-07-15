@@ -11,7 +11,7 @@ def load_config():
         return yaml.safe_load(file)
 
 def setup_logging(config):
-    log_file = config.get("logging", {}).get("log_file", "/app/app.log")
+    log_file = config.get("logging", {}).get("log_file", "/app/logs/app.log")
     log_level_str = config.get("logging", {}).get("log_level", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
