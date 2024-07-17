@@ -139,9 +139,13 @@ ics/*
 !ics/.gitkeep
 api_data/*
 !api_data/.gitkeep
+logs/*
+!logs/.gitkeep
+sqlite_db/*
+!sqlite_db/.gitkeep
+session/*
+!session/.gitkeep
 
-# telethon sesion
-telethon_session.session
 
 # mac users
 .DS_Store

@@ -15,6 +15,7 @@ services:
       - ./key.json:/app/key.json
       - ./cron_logs:/var/log/cron
       - ./app.log:/app/app.log
+      - telegram_session:/app/session  # Nuevo volumen para la sesión de Telegram
     environment:
       - CONFIG_FILE=/app/settings.yaml
     restart: unless-stopped
@@ -22,3 +23,5 @@ services:
 volumes:
   sqlite_db:
     name: calendar_generator_sqlite_db
+  telegram_session:
+    name: calendar_generator_telegram_session  # Nuevo volumen nombrado

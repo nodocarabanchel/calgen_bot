@@ -31,7 +31,7 @@ telegram_bot:
   api_id: "your_api_id_here"  # API ID obtenido de https://my.telegram.org/apps
   api_hash: "your_api_hash_here"  # API Hash obtenido de https://my.telegram.org/apps
   phone: "your_phone_number_here"  # Número de teléfono asociado a tu cuenta de Telegram
-  session_file: "telethon_session"  # Nombre del archivo de sesión de Telethon
+  session_file: "/app/session/telethon_sessio"  # Nombre del archivo de sesión de Telethon
   offset_path: "offset.json"
   max_posters_per_day: 50
   start_date: null  # Puede ser null si no se especifica. el formato es "YYYY-MM-DD"
