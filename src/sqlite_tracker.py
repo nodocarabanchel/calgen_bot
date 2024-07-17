@@ -38,7 +38,6 @@ class DatabaseManager:
             hash TEXT
         )
         ''')
-    self.conn.commit()
 
     def add_image_hash(self, image_name, image_hash):
         self.cursor.execute('INSERT OR REPLACE INTO image_hashes (image_name, hash) VALUES (?, ?)', (image_name, image_hash))
