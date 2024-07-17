@@ -1,8 +1,6 @@
 import io
 import asyncio
 import logging
-import hashlib
-from PIL import Image
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from utils import load_config, setup_logging, clean_directories, get_image_hash

@@ -1,10 +1,14 @@
+
+import io
 import yaml
 import logging
 import requests
+import hashlib
 import json
 from pathlib import Path
 import logging
 import sys
+from PIL import Image
 
 def load_config():
     with open("settings.yaml", "r") as file:
