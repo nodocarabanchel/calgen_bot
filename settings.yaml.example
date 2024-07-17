@@ -1,6 +1,6 @@
 # Configuración de logging
 logging:
-  log_file: "app.log"
+  log_file: "logs/app.log"
   log_level: "INFO"
 
 # Configuración del servicio OCR (documentai o easyocr)
@@ -31,7 +31,7 @@ telegram_bot:
   api_id: "your_api_id_here"  # API ID obtenido de https://my.telegram.org/apps
   api_hash: "your_api_hash_here"  # API Hash obtenido de https://my.telegram.org/apps
   phone: "your_phone_number_here"  # Número de teléfono asociado a tu cuenta de Telegram
-  session_file: "/app/session/telethon_sessio"  # Nombre del archivo de sesión de Telethon
+  session_file: "session/telethon_session"  # Nombre del archivo de sesión de Telethon
   offset_path: "offset.json"
   max_posters_per_day: 50
   start_date: null  # Puede ser null si no se especifica. el formato es "YYYY-MM-DD"
@@ -49,7 +49,7 @@ opencage_api:
   key: "your_opencage_api_key_here"
 
 # Event tracker
-event_tracker_db_path: "event_tracker.db"
+event_tracker_db_path: "sqlite_db/event_tracker.db"
 
 # Configuración de SMTP
 smtp:
