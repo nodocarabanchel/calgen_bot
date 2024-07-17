@@ -58,8 +58,8 @@ async def main():
     
     # Process newly downloaded images
     new_image_files = [img_file for img_file in images_folder.iterdir() 
-                       if img_file.suffix.lower() in OCRReader.SUPPORTED_FORMATS 
-                       and not db_manager.is_image_processed(img_file.name)]
+                    if img_file.suffix.lower() in OCRReader.SUPPORTED_FORMATS 
+                    and not db_manager.is_image_processed(img_file.name)]
     logging.info(f"Found {len(new_image_files)} new images to process")
     
     ocr_service = config["ocr_service"]
@@ -82,7 +82,8 @@ async def main():
             with open(caption_file_path, 'r', encoding='utf-8') as caption_file:
                 caption = caption_file.read()
         
-        combined_text = f"{caption} {text}" if text else caption
+        # Use both caption and OCR text for extraction
+        combined_text = f"{caption} {text}" if caption else text
         if combined_text:
             with open(text_file_path, 'w', encoding='utf-8') as text_file:
                 text_file.write(combined_text)
@@ -97,11 +98,12 @@ async def main():
                     else:
                         event_id = f"{extracted_data['summary']}_{extracted_data['dtstart']}_{extracted_data['location']}"
                         if not db_manager.is_event_sent(event_id):
+                            # Use only the caption for the ICS file
                             exporter.export({
                                 'summary': extracted_data['summary'],
                                 'date': extracted_data['dtstart'],
                                 'location': extracted_data['location'],
-                                'description': extracted_data.get('description', '')
+                                'description': caption  # Use only the caption here
                             }, ics_file_path)
                             logging.info(f"ICS file successfully generated: {img_file.name}")
                             db_manager.add_event_title(extracted_data['summary'])
