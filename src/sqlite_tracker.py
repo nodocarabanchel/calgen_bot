@@ -32,7 +32,26 @@ class DatabaseManager:
             description TEXT
         )
         ''')
+        self.cursor.execute('''
+        CREATE TABLE IF NOT EXISTS image_hashes (
+            image_name TEXT PRIMARY KEY,
+            hash TEXT
+        )
+        ''')
+    self.conn.commit()
+
+    def add_image_hash(self, image_name, image_hash):
+        self.cursor.execute('INSERT OR REPLACE INTO image_hashes (image_name, hash) VALUES (?, ?)', (image_name, image_hash))
         self.conn.commit()
+
+    def get_image_hash(self, image_name):
+        self.cursor.execute('SELECT hash FROM image_hashes WHERE image_name = ?', (image_name,))
+        result = self.cursor.fetchone()
+        return result[0] if result else None
+
+    def is_hash_processed(self, image_hash):
+        self.cursor.execute('SELECT 1 FROM image_hashes WHERE hash = ?', (image_hash,))
+        return self.cursor.fetchone() is not None
 
     def is_image_downloaded(self, image_name):
         return self.is_image_processed(image_name)

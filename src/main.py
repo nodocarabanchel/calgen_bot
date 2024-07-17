@@ -1,8 +1,11 @@
+import io
 import asyncio
 import logging
+import hashlib
+from PIL import Image
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from utils import load_config, setup_logging, clean_directories
+from utils import load_config, setup_logging, clean_directories, get_image_hash
 from ics_uploader import extract_event_details_from_ics, send_event
 from calendar_generator import OCRReader, EntityExtractor, ICSExporter
 from telegram_bot import TelegramBot
@@ -70,7 +73,15 @@ async def main():
     exporter = ICSExporter()
     
     processed_events = 0
+    processed_hashes = set()
+
     for img_file in new_image_files:
+        image_hash = get_image_hash(img_file)
+        
+        if image_hash in processed_hashes or db_manager.is_hash_processed(image_hash):
+            logging.info(f"Imagen {img_file.name} ya procesada. Saltando...")
+            continue
+        
         logging.info(f"Processing new image: {img_file.name}")
         text_file_path = text_output_folder / (img_file.stem + '.txt')
         ics_file_path = ics_output_folder / (img_file.stem + '.ics')
@@ -121,7 +132,8 @@ async def main():
                 logging.warning(f"Extracted data: {extracted_data}")
         else:
             logging.warning(f"No text extracted from image {img_file.name}")
-        
+        processed_hashes.add(image_hash)
+        db_manager.add_image_hash(img_file.name, image_hash)
         db_manager.mark_image_as_processed(img_file.name)
 
     logging.info(f"Total new events processed from images: {processed_events}")

@@ -36,6 +36,12 @@ def setup_logging(config):
     # Forzar la salida del buffer
     sys.stdout.flush()
 
+def get_image_hash(image_path):
+    with Image.open(image_path) as img:
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='PNG')
+        return hashlib.md5(img_byte_arr.getvalue()).hexdigest()
+
 class GeocodingService:
     def __init__(self, api_key):
         self.api_key = api_key
