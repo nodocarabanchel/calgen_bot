@@ -6,6 +6,7 @@ class DatabaseManager:
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
         self.create_tables()
+        self.migrate_database()
 
     def create_tables(self):
         self.cursor.execute('''
@@ -43,6 +44,30 @@ class DatabaseManager:
             )
         ''')
         self.conn.commit()
+
+    def migrate_database(self):
+        try:
+            # Verificar si las columnas existen
+            self.cursor.execute("PRAGMA table_info(events)")
+            columns = [column[1] for column in self.cursor.fetchall()]
+
+            # Si la tabla está vacía o no tiene las columnas correctas, recréala
+            if not columns or set(columns) != {'id', 'summary', 'dtstart', 'location'}:
+                self.cursor.execute("DROP TABLE IF EXISTS events")
+                self.cursor.execute('''
+                    CREATE TABLE events (
+                        id TEXT PRIMARY KEY,
+                        summary TEXT,
+                        dtstart TEXT,
+                        location TEXT
+                    )
+                ''')
+
+            self.conn.commit()
+            logging.info("Database migration completed successfully")
+        except sqlite3.Error as e:
+            logging.error(f"Error during database migration: {e}")
+            self.conn.rollback()
 
     def add_image_hash(self, image_name, image_hash):
         try:
@@ -100,7 +125,7 @@ class DatabaseManager:
     def is_duplicate_event(self, event_data):
         try:
             self.cursor.execute("SELECT * FROM events WHERE summary = ? AND dtstart = ? AND location = ?",
-                                (event_data['summary'], event_data['dtstart'], event_data['location']))
+                                (event_data.get('summary'), event_data.get('dtstart'), event_data.get('location')))
             return self.cursor.fetchone() is not None
         except sqlite3.Error as e:
             logging.error(f"Error checking duplicate event: {e}")
@@ -108,9 +133,9 @@ class DatabaseManager:
 
     def add_event(self, event_data):
         try:
-            event_id = f"{event_data['summary']}_{event_data['dtstart']}_{event_data['location']}"
+            event_id = f"{event_data.get('summary')}_{event_data.get('dtstart')}_{event_data.get('location')}"
             self.cursor.execute("INSERT OR REPLACE INTO events (id, summary, dtstart, location) VALUES (?, ?, ?, ?)",
-                                (event_id, event_data['summary'], event_data['dtstart'], event_data['location']))
+                                (event_id, event_data.get('summary'), event_data.get('dtstart'), event_data.get('location')))
             self.conn.commit()
         except sqlite3.Error as e:
             logging.error(f"Error adding event: {e}")
