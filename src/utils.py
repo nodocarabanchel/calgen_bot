@@ -1,4 +1,3 @@
-
 import io
 import yaml
 import logging
@@ -9,6 +8,7 @@ from pathlib import Path
 import logging
 import sys
 from PIL import Image
+import numpy as np
 
 def load_config():
     with open("settings.yaml", "r") as file:
@@ -29,22 +29,27 @@ def setup_logging(config):
         ]
     )
 
-    # Configurar loggers específicos
     logging.getLogger('httpx').setLevel(logging.WARNING)
 
-    # Verificar la configuración
     root_logger = logging.getLogger()
     root_logger.info(f"Logging setup complete. Root logger level: {logging.getLevelName(root_logger.level)}")
     root_logger.info(f"Log file: {log_file}")
 
-    # Forzar la salida del buffer
     sys.stdout.flush()
 
-def get_image_hash(image_path):
+def get_image_hash(image_path, hash_size=8):
     with Image.open(image_path) as img:
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format='PNG')
-        return hashlib.md5(img_byte_arr.getvalue()).hexdigest()
+        img = img.convert('L').resize((hash_size + 1, hash_size), Image.LANCZOS)
+        pixels = np.array(img)
+        diff = pixels[:, 1:] > pixels[:, :-1]
+        # Convertir el hash a una cadena binaria
+        return ''.join(['1' if diff[i // hash_size][i % hash_size] else '0' for i in range(hash_size * hash_size)])
+
+def are_images_similar(hash1, hash2, threshold=10):
+    if len(hash1) != len(hash2):
+        return False, len(hash1)
+    distance = sum(c1 != c2 for c1, c2 in zip(hash1, hash2))
+    return distance <= threshold, distance
 
 class GeocodingService:
     def __init__(self, api_key):
@@ -66,7 +71,6 @@ class GeocodingService:
                 location = result['results'][0]
                 components = location['components']
                 logging.info(f"Geocoding components: {str(components)}")
-
                 
                 categories = []
                 if components.get('suburb'):

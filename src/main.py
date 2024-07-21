@@ -3,7 +3,7 @@ import asyncio
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from utils import load_config, setup_logging, clean_directories, get_image_hash
+from utils import load_config, setup_logging, clean_directories, get_image_hash, are_images_similar
 from ics_uploader import extract_event_details_from_ics, send_event
 from calendar_generator import OCRReader, EntityExtractor, ICSExporter
 from telegram_bot import TelegramBot
@@ -57,7 +57,6 @@ async def main():
         logging.info("Telegram bot is disabled in settings")
         new_images = 0
     
-    # Process newly downloaded images
     new_image_files = [img_file for img_file in images_folder.iterdir() 
                     if img_file.suffix.lower() in OCRReader.SUPPORTED_FORMATS 
                     and not db_manager.is_image_processed(img_file.name)]
@@ -71,13 +70,20 @@ async def main():
     exporter = ICSExporter()
     
     processed_events = 0
-    processed_hashes = set()
+    processed_hashes = {}
 
     for img_file in new_image_files:
         image_hash = get_image_hash(img_file)
         
-        if image_hash in processed_hashes or db_manager.is_hash_processed(image_hash):
-            logging.info(f"Imagen {img_file.name} ya procesada. Saltando...")
+        is_duplicate = False
+        for processed_file, processed_hash in processed_hashes.items():
+            similar, distance = are_images_similar(image_hash, processed_hash)
+            if similar:
+                logging.info(f"Imagen {img_file.name} es similar a {processed_file}. Distancia: {distance}. Saltando...")
+                is_duplicate = True
+                break
+        
+        if is_duplicate or db_manager.is_hash_processed(image_hash):
             continue
         
         logging.info(f"Processing new image: {img_file.name}")
@@ -91,7 +97,6 @@ async def main():
             with open(caption_file_path, 'r', encoding='utf-8') as caption_file:
                 caption = caption_file.read()
         
-        # Use both caption and OCR text for extraction
         combined_text = f"{caption} {text}" if caption else text
         if combined_text:
             with open(text_file_path, 'w', encoding='utf-8') as text_file:
@@ -107,12 +112,11 @@ async def main():
                     else:
                         event_id = f"{extracted_data['summary']}_{extracted_data['dtstart']}_{extracted_data['location']}"
                         if not db_manager.is_event_sent(event_id):
-                            # Use only the caption for the ICS file
                             exporter.export({
                                 'summary': extracted_data['summary'],
                                 'date': extracted_data['dtstart'],
                                 'location': extracted_data['location'],
-                                'description': caption  # Use only the caption here
+                                'description': caption
                             }, ics_file_path)
                             logging.info(f"ICS file successfully generated: {img_file.name}")
                             db_manager.add_event_title(extracted_data['summary'])
@@ -130,7 +134,7 @@ async def main():
                 logging.warning(f"Extracted data: {extracted_data}")
         else:
             logging.warning(f"No text extracted from image {img_file.name}")
-        processed_hashes.add(image_hash)
+        processed_hashes[img_file.name] = image_hash
         db_manager.add_image_hash(img_file.name, image_hash)
         db_manager.mark_image_as_processed(img_file.name)
 
@@ -166,7 +170,6 @@ async def main():
     logging.info("All processes completed successfully.")
     db_manager.close()
 
-    # Clean up directories
     directories_to_clean = [
         config["directories"]["images"],
         config["directories"]["download_tracker"],

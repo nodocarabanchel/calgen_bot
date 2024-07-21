@@ -24,6 +24,7 @@ google-cloud-documentai-toolbox = "^0.13.3a0"
 python-telegram-bot = "^21.3"
 icalendar = "^5.0.12"
 telethon = "^1.36.0"
+pillow = "^10.4.0"
 
 [build-system]
 requires = ["poetry-core"]
