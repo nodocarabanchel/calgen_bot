@@ -104,29 +104,26 @@ async def main():
             logging.info(f"Extracting event info from: {combined_text[:100]}...")
             extracted_data = extractor.extract_event_info(combined_text)
             if extracted_data and all([extracted_data.get('summary'), extracted_data.get('dtstart'), extracted_data.get('location')]):
-                logging.info(f"Extracted data: {extracted_data}")
+                logging.info(f"Datos extraídos: {extracted_data}")
                 
                 try:
                     if db_manager.is_duplicate_event(extracted_data):
-                        logging.info(f"Skipping duplicate event: {extracted_data['summary']}")
+                        logging.info(f"Omitiendo evento duplicado: {extracted_data['summary']}")
                     else:
                         event_id = f"{extracted_data['summary']}_{extracted_data['dtstart']}_{extracted_data['location']}"
                         if not db_manager.is_event_sent(event_id):
-                            exporter.export({
-                                'summary': extracted_data['summary'],
-                                'date': extracted_data['dtstart'],
-                                'location': extracted_data['location'],
-                                'description': caption
-                            }, ics_file_path)
-                            logging.info(f"ICS file successfully generated: {img_file.name}")
+                            # Añadir el caption a los datos extraídos
+                            extracted_data['caption'] = caption
+                            exporter.export(extracted_data, ics_file_path)
+                            logging.info(f"Archivo ICS generado exitosamente: {img_file.name}")
                             db_manager.add_event_title(extracted_data['summary'])
                             db_manager.add_event(extracted_data)
                             processed_events += 1
                         else:
-                            logging.info(f"Skipping already processed event: {event_id}")
+                            logging.info(f"Omitiendo evento ya procesado: {event_id}")
                 except Exception as e:
-                    logging.error(f"Error processing event data: {str(e)}")
-                    logging.error(f"Problematic data: {extracted_data}")
+                    logging.error(f"Error al procesar los datos del evento: {str(e)}")
+                    logging.error(f"Datos problemáticos: {extracted_data}")
                     for key, value in extracted_data.items():
                         logging.error(f"{key}: {value}")
             else:

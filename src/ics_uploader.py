@@ -2,13 +2,14 @@ import logging
 from pathlib import Path
 import requests
 import json
-from icalendar import Calendar
+from icalendar import Calendar, vRecur
 from utils import get_geolocation, save_to_file, load_config
 import imghdr
 from PIL import Image
 import io
 from time import sleep, time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
+import pytz
 
 def extract_event_details_from_ics(ics_file):
     events = []
@@ -20,6 +21,18 @@ def extract_event_details_from_ics(ics_file):
                     start = component.get('DTSTART').dt
                     end = component.get('DTEND', component.get('DTSTART')).dt
                     
+                    # Convertir date a datetime si es necesario
+                    if isinstance(start, date):
+                        start = datetime.combine(start, datetime.min.time())
+                    if isinstance(end, date):
+                        end = datetime.combine(end, datetime.max.time())
+
+                    # Asegurar que las fechas están en UTC
+                    if start.tzinfo is None:
+                        start = pytz.utc.localize(start)
+                    if end.tzinfo is None:
+                        end = pytz.utc.localize(end)
+
                     # Manejar eventos de varios días
                     is_multi_day = False
                     if isinstance(start, datetime) and isinstance(end, datetime):
@@ -58,7 +71,6 @@ def extract_event_details_from_ics(ics_file):
     except Exception as e:
         logging.error(f"Failed to extract event details from ICS file: {e}")
     return []
- 
 
 def save_to_file(data, file_path):
     try:
@@ -96,8 +108,12 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
         'place_latitude': str(event_details.get('place_latitude', '')),
         'place_longitude': str(event_details.get('place_longitude', '')),
         'start_datetime': str(event_details['start_datetime']),
-        'multidate': 'false'
+        'multidate': 'true' if event_details.get('is_multi_day') else 'false'
     }
+    
+    # Add end_datetime if it exists
+    if event_details.get('end_datetime'):
+        data['end_datetime'] = str(event_details['end_datetime'])
     
     # Add tags if categories are available
     categories = event_details.get('categories', [])
@@ -108,6 +124,10 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     # Add description if it exists and is not empty
     if event_details.get('description') and event_details['description'].strip():
         data['description'] = event_details['description'].strip()
+
+    # Add recurrence if it exists
+    if event_details.get('recurrence'):
+        data['recurrence'] = event_details['recurrence']
 
     headers = {}
     if api_token:
