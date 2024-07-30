@@ -56,8 +56,8 @@ def extract_event_details_from_ics(ics_file):
                             'place_address': str(component.get('LOCATION')),
                             'start_datetime': int(start.timestamp()),
                             'end_datetime': int(end.timestamp()),
-                            'is_multi_day': is_multi_day,
-                            'recurrence': recurrence_info,
+                            'multidate': is_multi_day,
+                            'recurrent': recurrence_info,
                             'categories': []
                         }
 
