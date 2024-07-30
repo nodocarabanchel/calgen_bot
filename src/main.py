@@ -8,7 +8,7 @@ from ics_uploader import extract_event_details_from_ics, send_event
 from calendar_generator import OCRReader, EntityExtractor, ICSExporter
 from telegram_bot import TelegramBot
 from sqlite_tracker import DatabaseManager
-from event_fingerprint import EventFingerprint
+import pytz
 
 async def main():
     config = load_config()
@@ -103,31 +103,32 @@ async def main():
                 text_file.write(combined_text)
             logger.info(f"Extracting event info from: {combined_text[:100]}...")
             extracted_data = extractor.extract_event_info(combined_text)
-            if extracted_data and all([extracted_data.get('summary'), extracted_data.get('dtstart'), extracted_data.get('location')]):
+            if extracted_data and all([extracted_data.get('SUMMARY'), extracted_data.get('DTSTART'), extracted_data.get('LOCATION')]):
                 logger.info(f"Extracted data: {extracted_data}")
                 
                 try:
-                    start_date = exporter.parse_date(extracted_data['dtstart'], pytz.timezone("Europe/Madrid"))
-                    end_date = exporter.parse_date(extracted_data.get('dtend'), pytz.timezone("Europe/Madrid")) if extracted_data.get('dtend') else None
+                    start_date = datetime.strptime(extracted_data['DTSTART'], "%Y%m%dT%H%M%S").replace(tzinfo=pytz.timezone("Europe/Madrid"))
+                    end_date = datetime.strptime(extracted_data['DTEND'], "%Y%m%dT%H%M%S").replace(tzinfo=pytz.timezone("Europe/Madrid")) if extracted_data.get('DTEND') else None
                     
                     if start_date is None:
-                        logger.error(f"Invalid start date: {extracted_data['dtstart']}")
+                        logger.error(f"Invalid start date: {extracted_data['DTSTART']}")
                         continue
                     
                     if db_manager.is_duplicate_event(extracted_data):
-                        logger.info(f"Skipping duplicate event: {extracted_data['summary']}")
+                        logger.info(f"Skipping duplicate event: {extracted_data['SUMMARY']}")
                     else:
-                        event_id = f"{extracted_data['summary']}_{start_date.isoformat()}_{extracted_data['location']}"
+                        event_id = f"{extracted_data['SUMMARY']}_{start_date.isoformat()}_{extracted_data['LOCATION']}"
                         if not db_manager.is_event_sent(event_id):
                             exporter.export({
-                                'summary': extracted_data['summary'],
+                                'summary': extracted_data['SUMMARY'],
                                 'dtstart': start_date,
                                 'dtend': end_date,
-                                'location': extracted_data['location'],
-                                'description': caption
+                                'location': extracted_data['LOCATION'],
+                                'description': caption,
+                                'rrule': extracted_data.get('RRULE')
                             }, ics_file_path)
                             logger.info(f"ICS file successfully generated: {img_file.name}")
-                            db_manager.add_event_title(extracted_data['summary'])
+                            db_manager.add_event_title(extracted_data['SUMMARY'])
                             db_manager.add_event(extracted_data)
                             processed_events += 1
                         else:

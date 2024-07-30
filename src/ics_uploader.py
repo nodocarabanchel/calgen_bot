@@ -8,7 +8,7 @@ import imghdr
 from PIL import Image
 import io
 from time import sleep
-from datetime import datetime, time
+from datetime import datetime, date, time, timedelta
 import pytz
 
 logger = logging.getLogger(__name__)
@@ -25,9 +25,9 @@ def extract_event_details_from_ics(ics_file):
                         end = component.get('DTEND', component.get('DTSTART')).dt
                         
                         # Convertir date a datetime si es necesario
-                        if isinstance(start, datetime.date):
+                        if isinstance(start, date) and not isinstance(start, datetime):
                             start = datetime.combine(start, datetime.min.time())
-                        if isinstance(end, datetime.date):
+                        if isinstance(end, date) and not isinstance(end, datetime):
                             end = datetime.combine(end, datetime.max.time())
 
                         # Asegurar que las fechas están en UTC
@@ -72,10 +72,10 @@ def extract_event_details_from_ics(ics_file):
                         logger.info(f"Event details extracted: {event_details}")
                         events.append(event_details)
                     except Exception as e:
-                        logger.error(f"Error processing event in ICS file: {e}")
+                        logger.error(f"Error processing event in ICS file: {e}", exc_info=True)
         return events
     except Exception as e:
-        logger.error(f"Failed to extract event details from ICS file: {e}")
+        logger.error(f"Failed to extract event details from ICS file: {e}", exc_info=True)
     return []
 
 def save_to_file(data, file_path):
@@ -103,13 +103,17 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
 
     start_datetime = datetime.fromtimestamp(event_details['start_datetime'])
     end_datetime = datetime.fromtimestamp(event_details['end_datetime'])
-    adjusted_end = adjust_end_datetime(end_datetime)
+
+    # Si el evento termina a medianoche, ajustamos para que termine un minuto antes
+    if end_datetime.time() == time(0, 0):
+        end_datetime = end_datetime - timedelta(minutes=1)
 
     data = {
-        'title': event_details['title'].rstrip('`'),  # Eliminar el carácter ` al final si existe
+        'title': event_details['title'].rstrip('`'),
         'place_name': event_details['place_name'],
-        'place_address': event_details['place_address'].rstrip('`'),  # Eliminar el carácter ` al final si existe
-        'start_datetime': str(event_details['start_datetime']),
+        'place_address': event_details['place_address'].rstrip('`'),
+        'start_datetime': str(int(start_datetime.timestamp())),
+        'end_datetime': str(int(end_datetime.timestamp())),
         'multidate': 'true' if event_details.get('is_multi_day') else 'false'
     }
 
@@ -117,18 +121,14 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
         data['place_latitude'] = str(event_details['place_latitude'])
         data['place_longitude'] = str(event_details['place_longitude'])
 
-    # Añadir end_datetime si existe
-    if 'end_datetime' in event_details and event_details['end_datetime']:
-        data['end_datetime'] = str(event_details['end_datetime'])
     if event_details.get('recurrence'):
-        data['recurrence'] = event_details['recurrence'].rstrip('`')  # Eliminar el carácter ` al final si existe
+        data['recurrence'] = event_details['recurrence'].rstrip('`')
 
     categories = event_details.get('categories', [])
     if categories:
         for i, category in enumerate(categories):
             data[f'tags[{i}]'] = category
 
-    # Añadir descripción si existe y no está vacía
     if 'description' in event_details and event_details['description'].strip():
         data['description'] = event_details['description'].strip()
 
