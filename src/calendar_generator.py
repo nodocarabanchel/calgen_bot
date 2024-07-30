@@ -2,7 +2,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
 from PIL import Image
-from dateutil import parser, rrule
+from dateutil.rrule import rrulestr
+from dateutil.parser import parse
 from google.cloud import documentai_v1beta3 as documentai
 from google.oauth2 import service_account
 from google.api_core.client_options import ClientOptions
@@ -99,18 +100,19 @@ class EntityExtractor:
             self.client = Groq(api_key=config['external_api']['api_key'])
 
     def get_improved_prompt(self, text: str) -> str:
-        return f"""Analiza el siguiente texto y extrae la información del evento en un formato JSON estructurado. Asegúrate de seguir estas reglas:
+        return f"""Analiza el siguiente texto y extrae la información del evento en un formato JSON estructurado. Sigue estas reglas estrictamente:
 
-1. Utiliza el formato ISO 8601 para las fechas y horas (YYYY-MM-DDTHH:MM:SS).
-2. Si no se especifica el año, asume que es el año actual ({datetime.now().year}).
+1. Utiliza el formato ISO 8601 para las fechas y horas (YYYY-MM-DDTHH:MM:SS) SOLO si se proporciona una fecha específica en el texto.
+2. Si no se especifica una fecha exacta, deja el campo DTSTART vacío.
 3. Todas las fechas y horas deben estar en la zona horaria de España (Europe/Madrid).
 4. Para eventos recurrentes o de varios días, proporciona una regla RRULE adecuada.
+5. NO inventes ni infieras fechas que no estén explícitamente mencionadas en el texto.
 
 Estructura JSON requerida:
 {{
     "SUMMARY": "Título del evento",
-    "DTSTART": "YYYY-MM-DDTHH:MM:SS",
-    "DTEND": "YYYY-MM-DDTHH:MM:SS",
+    "DTSTART": "YYYY-MM-DDTHH:MM:SS", // Dejar vacío si no hay fecha específica
+    "DTEND": "YYYY-MM-DDTHH:MM:SS", // Dejar vacío si no hay fecha de fin específica
     "LOCATION": "Ubicación del evento",
     "RRULE": "Regla de recurrencia en formato ICS estándar",
     "ALL_DAY": true/false
@@ -118,17 +120,16 @@ Estructura JSON requerida:
 
 Reglas para RRULE:
 - Para eventos de un solo día: deja el campo vacío.
-- Para eventos de varios días consecutivos: usa "FREQ=DAILY;UNTIL=YYYY-MM-DDTHH:MM:SS"
-- Para eventos recurrentes: proporciona la regla completa (ej: "FREQ=WEEKLY;BYDAY=MO,WE,FR")
+- Para eventos recurrentes: proporciona la regla completa (ej: "FREQ=WEEKLY;BYDAY=FR")
+- NO incluyas fechas específicas en la RRULE a menos que estén explícitamente mencionadas en el texto.
 
-Asegúrate de que la RRULE sea coherente con las fechas DTSTART y DTEND.
+Asegúrate de que la RRULE sea coherente con la información proporcionada en el texto.
 
 Texto a analizar:
 
 {text}
 
-Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales.
-"""
+Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si algún campo no tiene información específica, déjalo vacío o null."""
 
     def extract_event_info(self, text: str):
         model_type = self.config['external_api']['service'] if self.config['external_api']['use'] else 'local_model'
@@ -184,26 +185,26 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales.
 
 class ICSExporter:
     def export(self, entities: Dict[str, str], output_path: Path):
-        logging.info(f"Attempting to export ICS with entities: {entities}")
-        if not entities.get('dtstart'):
-            logging.warning("No se proporcionó fecha de inicio para la exportación ICS. Ignorando este evento.")
+        logger.info(f"Attempting to export ICS with entities: {entities}")
+        
+        cest = pytz.timezone("Europe/Madrid")
+        current_date = datetime.now(cest)
+
+        start_date = entities.get('dtstart')
+        end_date = entities.get('dtend')
+        rrule = entities.get('rrule')
+
+        if not start_date and rrule:
+            start_date = self.get_next_occurrence(rrule, current_date)
+            if not start_date:
+                logger.warning("No se pudo determinar la próxima ocurrencia del evento recurrente. Ignorando este evento.")
+                return
+
+        if not start_date:
+            logger.warning("No se proporcionó fecha de inicio para la exportación ICS. Ignorando este evento.")
             return
 
         try:
-            cest = pytz.timezone("Europe/Madrid")
-            current_date = datetime.now(cest)
-
-            start_date = entities['dtstart']
-            end_date = entities.get('dtend')
-
-            if start_date is None:
-                logging.error(f"No se pudo analizar la fecha de inicio: {entities['dtstart']}")
-                return
-
-            if start_date < current_date and not entities.get('rrule'):
-                logging.warning(f"La fecha del evento {start_date} está en el pasado y no es recurrente. Ignorando este evento.")
-                return
-
             calendar = Calendar()
             event = Event()
 
@@ -211,14 +212,10 @@ class ICSExporter:
             event.begin = start_date
             if end_date:
                 event.end = end_date
-            else:
-                # Si no hay fecha de fin, establecer la duración a 2 horas por defecto
-                event.end = start_date + timedelta(hours=2)
             event.location = entities.get("location", "Ubicación Desconocida")
             event.description = entities.get('description', "")
 
-            if entities.get('rrule'):
-                rrule = entities['rrule']
+            if rrule:
                 if isinstance(rrule, str):
                     # Convertir la cadena RRULE en un ContentLine
                     rrule = ContentLine.parse('RRULE:' + rrule)
@@ -230,11 +227,18 @@ class ICSExporter:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(calendar_data)
             
-            logging.info(f"Archivo ICS exportado exitosamente: {output_path}")
-            logging.info(f"Evento exportado: {event.name}, Inicio: {event.begin}, Fin: {event.end}, Recurrencia: {entities.get('rrule')}")
+            logger.info(f"Archivo ICS exportado exitosamente: {output_path}")
+            logger.info(f"Evento exportado: {event.name}, Inicio: {event.begin}, Fin: {event.end}, Recurrencia: {rrule}")
         except Exception as e:
-            logging.error(f"Error al exportar el ICS: {e}", exc_info=True)
+            logger.error(f"Error al exportar el ICS: {e}", exc_info=True)
 
-
-
-
+    def get_next_occurrence(self, rrule_str: str, current_date: datetime) -> Optional[datetime]:
+        try:
+            # Asumimos que el rrule_str está en formato correcto, por ejemplo:
+            # "FREQ=WEEKLY;BYDAY=WE"
+            rrule = rrulestr(rrule_str, dtstart=current_date)
+            next_occurrence = rrule.after(current_date, inc=True)
+            return next_occurrence
+        except Exception as e:
+            logger.error(f"Error al calcular la próxima ocurrencia: {e}")
+            return None
