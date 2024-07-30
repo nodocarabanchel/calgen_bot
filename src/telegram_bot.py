@@ -4,6 +4,9 @@ from pathlib import Path
 import asyncio
 from datetime import datetime, timezone
 import logging
+import logging
+
+logger = logging.getLogger(__name__)
 
 class TelegramBot:
     def __init__(self, api_id, api_hash, phone, session_file, db_manager, channel_ids, start_date=None, max_posters_per_day=50):
@@ -16,11 +19,11 @@ class TelegramBot:
 
     async def start(self):
         await self.client.start(phone=self.phone)
-        logging.info("TelegramClient started")
+        logger.info("TelegramClient started")
 
     async def stop(self):
         await self.client.disconnect()
-        logging.info("TelegramClient stopped")
+        logger.info("TelegramClient stopped")
 
     async def download_images(self, image_folder):
         image_folder_path = Path(image_folder)
@@ -31,7 +34,7 @@ class TelegramBot:
         for channel_id in self.channel_ids:
             try:
                 entity = await self.client.get_entity(int(channel_id))
-                logging.info(f"Processing channel/group with ID: {channel_id}")
+                logger.info(f"Processing channel/group with ID: {channel_id}")
 
                 async for message in self.client.iter_messages(entity, reverse=True, offset_date=self.start_date):
                     if self.start_date and message.date < self.start_date:
@@ -42,7 +45,7 @@ class TelegramBot:
                         daily_counts[date_key] = 0
 
                     if daily_counts[date_key] >= self.max_posters_per_day:
-                        logging.info(f"Reached max posters limit for {date_key}")
+                        logger.info(f"Reached max posters limit for {date_key}")
                         continue
 
                     if message.photo:
@@ -50,7 +53,7 @@ class TelegramBot:
                             try:
                                 file_path = image_folder_path / f"{message.id}.jpg"
                                 await message.download_media(file=str(file_path))
-                                logging.info(f"New image saved to {file_path}")
+                                logger.info(f"New image saved to {file_path}")
 
                                 caption = message.text or ""
                                 caption_file_path = image_folder_path / f"{message.id}.txt"
@@ -62,12 +65,12 @@ class TelegramBot:
                                 daily_counts[date_key] += 1
 
                                 if daily_counts[date_key] >= self.max_posters_per_day:
-                                    logging.info(f"Reached max posters limit for {date_key}")
+                                    logger.info(f"Reached max posters limit for {date_key}")
                             except Exception as e:
-                                logging.error(f"Error downloading image: {e}")
+                                logger.error(f"Error downloading image: {e}")
 
             except Exception as e:
-                logging.error(f"Error processing channel/group with ID {channel_id}: {e}")
+                logger.error(f"Error processing channel/group with ID {channel_id}: {e}")
 
-        logging.info(f"Total new images downloaded: {new_images_downloaded}")
+        logger.info(f"Total new images downloaded: {new_images_downloaded}")
         return new_images_downloaded

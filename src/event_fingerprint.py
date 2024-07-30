@@ -1,5 +1,8 @@
 import hashlib
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 class EventFingerprint:
     def __init__(self, summary, date, location, description):

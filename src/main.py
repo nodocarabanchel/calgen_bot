@@ -12,10 +12,10 @@ from event_fingerprint import EventFingerprint
 
 async def main():
     config = load_config()
-    setup_logging(config)
-    
-    logging.info("Starting main function")
-    
+    logger = setup_logging(config, 'main')
+
+    logger.info("Starting main process")
+        
     db_manager = DatabaseManager(config["event_tracker_db_path"])
     
     if config["telegram_bot"]["use"]:
@@ -23,13 +23,13 @@ async def main():
         if start_date:
             try:
                 start_date = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                logging.info(f"Using provided start date: {start_date}")
+                logger.info(f"Using provided start date: {start_date}")
             except ValueError:
-                logging.error(f"Invalid start_date format: {start_date}. Using last 24 hours.")
+                logger.error(f"Invalid start_date format: {start_date}. Using last 24 hours.")
                 start_date = datetime.now(timezone.utc) - timedelta(days=1)
         else:
             start_date = datetime.now(timezone.utc) - timedelta(days=1)
-            logging.info(f"No start date provided. Using last 24 hours: {start_date}")
+            logger.info(f"No start date provided. Using last 24 hours: {start_date}")
         
         bot = TelegramBot(
             config["telegram_bot"]["api_id"],
@@ -48,23 +48,23 @@ async def main():
         text_output_folder.mkdir(exist_ok=True)
         ics_output_folder.mkdir(exist_ok=True)
         
-        logging.info("Checking for new images from Telegram")
+        logger.info("Checking for new images from Telegram")
         await bot.start()
         new_images = await bot.download_images(config["directories"]["images"])
         await bot.stop()
-        logging.info(f"Downloaded {new_images} new images from Telegram")
+        logger.info(f"Downloaded {new_images} new images from Telegram")
     else:
-        logging.info("Telegram bot is disabled in settings")
+        logger.info("Telegram bot is disabled in settings")
         new_images = 0
     
     new_image_files = [img_file for img_file in images_folder.iterdir() 
                     if img_file.suffix.lower() in OCRReader.SUPPORTED_FORMATS 
                     and not db_manager.is_image_processed(img_file.name)]
-    logging.info(f"Found {len(new_image_files)} new images to process")
+    logger.info(f"Found {len(new_image_files)} new images to process")
     
     ocr_service = config["ocr_service"]
     google_config = config.get("google_document_ai")
-    logging.info(f"Initializing OCR reader with service: {ocr_service}")
+    logger.info(f"Initializing OCR reader with service: {ocr_service}")
     reader = OCRReader(ocr_service, google_config)
     extractor = EntityExtractor(config)
     exporter = ICSExporter()
@@ -79,14 +79,14 @@ async def main():
         for processed_file, processed_hash in processed_hashes.items():
             similar, distance = are_images_similar(image_hash, processed_hash)
             if similar:
-                logging.info(f"Imagen {img_file.name} es similar a {processed_file}. Distancia: {distance}. Saltando...")
+                logger.info(f"Imagen {img_file.name} es similar a {processed_file}. Distancia: {distance}. Saltando...")
                 is_duplicate = True
                 break
         
         if is_duplicate or db_manager.is_hash_processed(image_hash):
             continue
         
-        logging.info(f"Processing new image: {img_file.name}")
+        logger.info(f"Processing new image: {img_file.name}")
         text_file_path = text_output_folder / (img_file.stem + '.txt')
         ics_file_path = ics_output_folder / (img_file.stem + '.ics')
         text = reader.read(img_file)
@@ -101,44 +101,55 @@ async def main():
         if combined_text:
             with open(text_file_path, 'w', encoding='utf-8') as text_file:
                 text_file.write(combined_text)
-            logging.info(f"Extracting event info from: {combined_text[:100]}...")
+            logger.info(f"Extracting event info from: {combined_text[:100]}...")
             extracted_data = extractor.extract_event_info(combined_text)
             if extracted_data and all([extracted_data.get('summary'), extracted_data.get('dtstart'), extracted_data.get('location')]):
-                logging.info(f"Datos extraídos: {extracted_data}")
+                logger.info(f"Extracted data: {extracted_data}")
                 
                 try:
+                    start_date = exporter.parse_date(extracted_data['dtstart'], pytz.timezone("Europe/Madrid"))
+                    end_date = exporter.parse_date(extracted_data.get('dtend'), pytz.timezone("Europe/Madrid")) if extracted_data.get('dtend') else None
+                    
+                    if start_date is None:
+                        logger.error(f"Invalid start date: {extracted_data['dtstart']}")
+                        continue
+                    
                     if db_manager.is_duplicate_event(extracted_data):
-                        logging.info(f"Omitiendo evento duplicado: {extracted_data['summary']}")
+                        logger.info(f"Skipping duplicate event: {extracted_data['summary']}")
                     else:
-                        event_id = f"{extracted_data['summary']}_{extracted_data['dtstart']}_{extracted_data['location']}"
+                        event_id = f"{extracted_data['summary']}_{start_date.isoformat()}_{extracted_data['location']}"
                         if not db_manager.is_event_sent(event_id):
-                            # Añadir el caption a los datos extraídos
-                            extracted_data['caption'] = caption
-                            exporter.export(extracted_data, ics_file_path)
-                            logging.info(f"Archivo ICS generado exitosamente: {img_file.name}")
+                            exporter.export({
+                                'summary': extracted_data['summary'],
+                                'dtstart': start_date,
+                                'dtend': end_date,
+                                'location': extracted_data['location'],
+                                'description': caption
+                            }, ics_file_path)
+                            logger.info(f"ICS file successfully generated: {img_file.name}")
                             db_manager.add_event_title(extracted_data['summary'])
                             db_manager.add_event(extracted_data)
                             processed_events += 1
                         else:
-                            logging.info(f"Omitiendo evento ya procesado: {event_id}")
+                            logger.info(f"Skipping already processed event: {event_id}")
                 except Exception as e:
-                    logging.error(f"Error al procesar los datos del evento: {str(e)}")
-                    logging.error(f"Datos problemáticos: {extracted_data}")
+                    logger.error(f"Error processing event data: {str(e)}")
+                    logger.error(f"Problematic data: {extracted_data}")
                     for key, value in extracted_data.items():
-                        logging.error(f"{key}: {value}")
+                        logger.error(f"{key}: {value}")
             else:
-                logging.warning(f"Failed to extract complete data for image {img_file.name}")
-                logging.warning(f"Extracted data: {extracted_data}")
+                logger.warning(f"Failed to extract complete data for image {img_file.name}")
+                logger.warning(f"Extracted data: {extracted_data}")
         else:
-            logging.warning(f"No text extracted from image {img_file.name}")
+            logger.warning(f"No text extracted from image {img_file.name}")
         processed_hashes[img_file.name] = image_hash
         db_manager.add_image_hash(img_file.name, image_hash)
         db_manager.mark_image_as_processed(img_file.name)
 
-    logging.info(f"Total new events processed from images: {processed_events}")
+    logger.info(f"Total new events processed from images: {processed_events}")
     
     ics_files = [ics_file for ics_file in ics_output_folder.iterdir() if ics_file.suffix.lower() == '.ics']
-    logging.info(f"Found {len(ics_files)} ICS files to process")
+    logger.info(f"Found {len(ics_files)} ICS files to process")
     
     sent_events = 0
     for ics_file in ics_files:
@@ -146,7 +157,7 @@ async def main():
         for event_details in events:
             event_id = f"{event_details['title']}_{event_details['start_datetime']}_{event_details['place_name']}"
             if not db_manager.is_event_sent(event_id):
-                logging.info(f"Attempting to send event: {event_details['title']}")
+                logger.info(f"Attempting to send event: {event_details['title']}")
                 base_filename = ics_file.stem
                 image_file = images_folder / f"{base_filename}.jpg"
                 if image_file.exists():
@@ -156,15 +167,15 @@ async def main():
                 
                 if response and response.status_code == 200:
                     db_manager.mark_event_as_sent(event_id)
-                    logging.info(f"Event sent and marked as processed: {event_id}")
+                    logger.info(f"Event sent and marked as processed: {event_id}")
                     sent_events += 1
                 else:
-                    logging.warning(f"Failed to send event: {event_id}")
+                    logger.warning(f"Failed to send event: {event_id}")
             else:
-                logging.info(f"Skipping already sent event: {event_id}")
+                logger.info(f"Skipping already sent event: {event_id}")
 
-    logging.info(f"Total events sent in this execution: {sent_events}")
-    logging.info("All processes completed successfully.")
+    logger.info(f"Total events sent in this execution: {sent_events}")
+    logger.info("All processes completed successfully.")
     db_manager.close()
 
     directories_to_clean = [
@@ -176,7 +187,7 @@ async def main():
     ]
     clean_directories(directories_to_clean)
 
-    logging.info("Main function completed.")
+    logger.info("Main function completed.")
 
 if __name__ == "__main__":
     asyncio.run(main())

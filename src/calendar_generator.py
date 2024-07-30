@@ -1,4 +1,3 @@
-import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
@@ -14,7 +13,10 @@ from ics.grammar.parse import ContentLine
 from groq import Groq
 import re
 import pytz
+from utils import setup_logging
+import logging
 
+logger = logging.getLogger(__name__)
 
 class OCRReader:
     SUPPORTED_FORMATS = ['.jpg', '.jpeg', '.png', '.bmp', '.pdf', '.tiff', '.tif', '.gif']
@@ -22,7 +24,7 @@ class OCRReader:
     def __init__(self, service: str, google_config: Optional[Dict[str, str]] = None):
         self.service = service
         if service == 'easyocr':
-            logging.info("Using EasyOCR for text extraction.")
+            logger.info("Using EasyOCR for text extraction.")
             self.reader = easyocr.Reader(['es'])
         elif service == 'documentai':
             if not google_config:
@@ -66,7 +68,7 @@ class OCRReader:
 
             return combined_text
         except Exception as e:
-            logging.exception("Error during text extraction: %s", e)
+            logger.exception("Error during text extraction: %s", e)
             return None
 
     def get_mime_type(self, image_path: Path) -> str:
@@ -97,21 +99,21 @@ class EntityExtractor:
     def extract_event_info(self, text: str):
         model_type = self.config['external_api']['service'] if self.config['external_api']['use'] else 'local_model'
         prompt = (f"Extrae la siguiente información del texto en formato ICS: "
-                  f"SUMMARY (título del evento), DTSTART (fecha y hora de inicio), DTEND (fecha y hora de finalización si está disponible), "
-                  f"LOCATION (ubicación), y RRULE (si es un evento recurrente). Para eventos recurrentes, proporciona la regla de recurrencia "
-                  f"(por ejemplo, FREQ=WEEKLY;BYDAY=MO,WE,FR). Asume que estamos en España, y si no se especifica el año, "
-                  f"usa el año actual ({datetime.now().year}). Aquí está el texto: {text}")
+                    f"SUMMARY (título del evento), DTSTART (fecha y hora de inicio), DTEND (fecha y hora de finalización si está disponible), "
+                    f"LOCATION (ubicación), y RRULE (si es un evento recurrente). Para eventos recurrentes, proporciona la regla de recurrencia "
+                    f"(por ejemplo, FREQ=WEEKLY;BYDAY=MO,WE,FR). Asume que estamos en España, y si no se especifica el año, "
+                    f"usa el año actual ({datetime.now().year}). Aquí está el texto: {text}")
 
         retries = 0
         while retries < self.max_retries:
             try:
                 if model_type == 'groq' and self.client:
-                    logging.debug(f"Sending request to Groq API with prompt: {prompt}")
+                    logger.debug(f"Sending request to Groq API with prompt: {prompt}")
                     chat_completion = self.client.chat.completions.create(
                         messages=[{"role": "user", "content": prompt}],
                         model=self.config['external_api']['model_name'],
                     )
-                    logging.debug(f"Received response from Groq API: {chat_completion}")
+                    logger.debug(f"Received response from Groq API: {chat_completion}")
                     content = chat_completion.choices[0].message.content
                 elif model_type == 'local_model' and self.config['local_model']['use']:
                     response = ollama.chat(
@@ -125,27 +127,29 @@ class EntityExtractor:
                 dtend = self.clean_date(self.extract_field("DTEND", content))
                 location = self.extract_field("LOCATION", content)
                 rrule = self.extract_field("RRULE", content)
-                description = text
 
-                if summary and dtstart:
-                    calendar_data = {
-                        'summary': summary,
-                        'dtstart': dtstart,
-                        'dtend': dtend,
-                        'location': location,
-                        'rrule': rrule,
-                        'description': description
-                    }
-                    logging.info(calendar_data)
-                    return calendar_data
+                calendar_data = {
+                    'summary': summary,
+                    'dtstart': dtstart,
+                    'dtend': dtend,
+                    'location': location,
+                    'rrule': rrule,
+                }
+                logger.info(f"Extracted calendar data: {calendar_data}")
+                return calendar_data
 
-                retries += 1
             except Exception as e:
-                logging.error(f"Error during event info extraction: {e}")
+                logger.error(f"Error during event info extraction: {e}")
                 retries += 1
 
-        logging.error("Failed to extract complete event info after maximum retries.")
-        return None
+        logger.error("Failed to extract complete event info after maximum retries.")
+        return {
+            'summary': None,
+            'dtstart': None,
+            'dtend': None,
+            'location': None,
+            'rrule': None,
+        }
 
     @staticmethod
     def extract_field(field, text):
@@ -160,14 +164,22 @@ class EntityExtractor:
         if date_str:
             # Remove all non-digit characters
             clean_date_str = re.sub(r'\D', '', date_str)
+            
+            # Check if the date string starts with a day (assuming it's in DD format)
+            if len(clean_date_str) >= 2 and 1 <= int(clean_date_str[:2]) <= 31:
+                # Rearrange to YYYYMMDD format
+                clean_date_str = clean_date_str[4:8] + clean_date_str[2:4] + clean_date_str[:2] + clean_date_str[8:]
+            
+            # If the string is shorter than 14 characters, pad with zeros
+            clean_date_str = clean_date_str.ljust(14, '0')
             # Take only the first 14 characters (YYYYMMDDThhmmss)
             clean_date_str = clean_date_str[:14]
-            if len(clean_date_str) == 14:
-                return f"{clean_date_str[:8]}T{clean_date_str[8:]}"
+            return f"{clean_date_str[:8]}T{clean_date_str[8:]}"
         return None
 
 class ICSExporter:
     def export(self, entities: Dict[str, str], output_path: Path):
+        logging.info(f"Attempting to export ICS with entities: {entities}")
         if not entities.get('dtstart'):
             logging.warning("No se proporcionó fecha de inicio para la exportación ICS. Ignorando este evento.")
             return
@@ -198,12 +210,7 @@ class ICSExporter:
                 # Si no hay fecha de fin, establecer la duración a 2 horas por defecto
                 event.end = start_date + timedelta(hours=2)
             event.location = entities.get("location", "Ubicación Desconocida")
-            
-            # Usar el caption como descripción si está disponible
-            if entities.get('caption'):
-                event.description = entities['caption']
-            else:
-                event.description = ""
+            event.description = entities.get('description', "")
 
             if entities.get('rrule'):
                 rrule = entities['rrule']
@@ -231,11 +238,26 @@ class ICSExporter:
         if not date_str:
             return None
         try:
+            # First, try the original format
             date_obj = datetime.strptime(date_str, "%Y%m%dT%H%M%S")
             return timezone.localize(date_obj)
-        except ValueError as e:
-            logging.error(f"Failed to parse date: {date_str}. Error: {e}")
-            # You might want to implement a fallback parsing method here
-            return None
+        except ValueError:
+            try:
+                # If that fails, try parsing just the date part
+                date_obj = datetime.strptime(date_str[:8], "%Y%m%d")
+                time_part = date_str[9:] if len(date_str) > 8 else "000000"
+                time_obj = datetime.strptime(time_part, "%H%M%S").time()
+                date_obj = date_obj.replace(hour=time_obj.hour, minute=time_obj.minute, second=time_obj.second)
+                return timezone.localize(date_obj)
+            except ValueError:
+                try:
+                    # If that also fails, try a more flexible parsing
+                    date_obj = parser.parse(date_str)
+                    if date_obj.tzinfo is None:
+                        date_obj = timezone.localize(date_obj)
+                    return date_obj
+                except Exception as e:
+                    logging.error(f"Failed to parse date: {date_str}. Error: {e}")
+                    return None
 
 

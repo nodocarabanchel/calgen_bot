@@ -14,11 +14,16 @@ def load_config():
     with open("settings.yaml", "r") as file:
         return yaml.safe_load(file)
 
-def setup_logging(config):
+def load_config():
+    with open("settings.yaml", "r") as file:
+        return yaml.safe_load(file)
+
+def setup_logging(config, log_name=None):
     log_file = config.get("logging", {}).get("log_file", "app/logs/app.log")
     log_level_str = config.get("logging", {}).get("log_level", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
+    # Configuración básica
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -29,13 +34,21 @@ def setup_logging(config):
         ]
     )
 
+    # Configurar el logger específico si se proporciona un nombre
+    if log_name:
+        logger = logging.getLogger(log_name)
+        logger.setLevel(log_level)
+    else:
+        logger = logging.getLogger()
+
+    # Configurar otros loggers
     logging.getLogger('httpx').setLevel(logging.WARNING)
 
-    root_logger = logging.getLogger()
-    root_logger.info(f"Logging setup complete. Root logger level: {logging.getLevelName(root_logger.level)}")
-    root_logger.info(f"Log file: {log_file}")
+    logger.info(f"Logging setup complete for {log_name if log_name else 'root'}. Logger level: {logging.getLevelName(logger.level)}")
+    logger.info(f"Log file: {log_file}")
 
-    sys.stdout.flush()
+    return logger
+
 
 def get_image_hash(image_path, hash_size=8):
     with Image.open(image_path) as img:

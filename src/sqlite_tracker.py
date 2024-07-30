@@ -1,5 +1,8 @@
 import sqlite3
 import logging
+import logging
+
+logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     def __init__(self, db_path):
@@ -64,9 +67,9 @@ class DatabaseManager:
                 ''')
 
             self.conn.commit()
-            logging.info("Database migration completed successfully")
+            logger.info("Database migration completed successfully")
         except sqlite3.Error as e:
-            logging.error(f"Error during database migration: {e}")
+            logger.error(f"Error during database migration: {e}")
             self.conn.rollback()
 
     def add_image_hash(self, image_name, image_hash):
@@ -75,14 +78,14 @@ class DatabaseManager:
                                 (image_name, image_hash))
             self.conn.commit()
         except sqlite3.Error as e:
-            logging.error(f"Error adding image hash: {e}")
+            logger.error(f"Error adding image hash: {e}")
 
     def is_hash_processed(self, image_hash):
         try:
             self.cursor.execute("SELECT * FROM image_hashes WHERE hash = ?", (image_hash,))
             return self.cursor.fetchone() is not None
         except sqlite3.Error as e:
-            logging.error(f"Error checking processed hash: {e}")
+            logger.error(f"Error checking processed hash: {e}")
             return False
 
     def mark_image_as_processed(self, image_name):
@@ -90,14 +93,14 @@ class DatabaseManager:
             self.cursor.execute("INSERT OR REPLACE INTO processed_images (image_name) VALUES (?)", (image_name,))
             self.conn.commit()
         except sqlite3.Error as e:
-            logging.error(f"Error marking image as processed: {e}")
+            logger.error(f"Error marking image as processed: {e}")
 
     def is_image_processed(self, image_name):
         try:
             self.cursor.execute("SELECT * FROM processed_images WHERE image_name = ?", (image_name,))
             return self.cursor.fetchone() is not None
         except sqlite3.Error as e:
-            logging.error(f"Error checking processed image: {e}")
+            logger.error(f"Error checking processed image: {e}")
             return False
 
     def mark_image_as_downloaded(self, image_id):
@@ -105,14 +108,14 @@ class DatabaseManager:
             self.cursor.execute("INSERT OR REPLACE INTO downloaded_images (image_id) VALUES (?)", (image_id,))
             self.conn.commit()
         except sqlite3.Error as e:
-            logging.error(f"Error marking image as downloaded: {e}")
+            logger.error(f"Error marking image as downloaded: {e}")
 
     def is_image_downloaded(self, image_id):
         try:
             self.cursor.execute("SELECT * FROM downloaded_images WHERE image_id = ?", (image_id,))
             return self.cursor.fetchone() is not None
         except sqlite3.Error as e:
-            logging.error(f"Error checking downloaded image: {e}")
+            logger.error(f"Error checking downloaded image: {e}")
             return False
 
     def add_event_title(self, title):
@@ -120,7 +123,7 @@ class DatabaseManager:
             self.cursor.execute("INSERT OR IGNORE INTO event_titles (title) VALUES (?)", (title,))
             self.conn.commit()
         except sqlite3.Error as e:
-            logging.error(f"Error adding event title: {e}")
+            logger.error(f"Error adding event title: {e}")
 
     def is_duplicate_event(self, event_data):
         try:
@@ -128,7 +131,7 @@ class DatabaseManager:
                                 (event_data.get('summary'), event_data.get('dtstart'), event_data.get('location')))
             return self.cursor.fetchone() is not None
         except sqlite3.Error as e:
-            logging.error(f"Error checking duplicate event: {e}")
+            logger.error(f"Error checking duplicate event: {e}")
             return False
 
     def add_event(self, event_data):
@@ -138,21 +141,21 @@ class DatabaseManager:
                                 (event_id, event_data.get('summary'), event_data.get('dtstart'), event_data.get('location')))
             self.conn.commit()
         except sqlite3.Error as e:
-            logging.error(f"Error adding event: {e}")
+            logger.error(f"Error adding event: {e}")
 
     def mark_event_as_sent(self, event_id):
         try:
             self.cursor.execute("INSERT OR REPLACE INTO sent_events (event_id) VALUES (?)", (event_id,))
             self.conn.commit()
         except sqlite3.Error as e:
-            logging.error(f"Error marking event as sent: {e}")
+            logger.error(f"Error marking event as sent: {e}")
 
     def is_event_sent(self, event_id):
         try:
             self.cursor.execute("SELECT * FROM sent_events WHERE event_id = ?", (event_id,))
             return self.cursor.fetchone() is not None
         except sqlite3.Error as e:
-            logging.error(f"Error checking sent event: {e}")
+            logger.error(f"Error checking sent event: {e}")
             return False
 
     def close(self):
