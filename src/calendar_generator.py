@@ -158,9 +158,12 @@ class EntityExtractor:
     @staticmethod
     def clean_date(date_str):
         if date_str:
-            clean_date_str = re.sub(r'[^\dT]', '', date_str)
-            if re.match(r'\d{8}T\d{6}', clean_date_str):
-                return clean_date_str
+            # Remove all non-digit characters
+            clean_date_str = re.sub(r'\D', '', date_str)
+            # Take only the first 14 characters (YYYYMMDDThhmmss)
+            clean_date_str = clean_date_str[:14]
+            if len(clean_date_str) == 14:
+                return f"{clean_date_str[:8]}T{clean_date_str[8:]}"
         return None
 
 class ICSExporter:
@@ -175,6 +178,10 @@ class ICSExporter:
 
             start_date = self.parse_date(entities['dtstart'], cest)
             end_date = self.parse_date(entities.get('dtend'), cest) if entities.get('dtend') else None
+
+            if start_date is None:
+                logging.error(f"No se pudo analizar la fecha de inicio: {entities['dtstart']}")
+                return
 
             if start_date < current_date and not entities.get('rrule'):
                 logging.warning(f"La fecha del evento {start_date} está en el pasado y no es recurrente. Ignorando este evento.")
@@ -226,7 +233,9 @@ class ICSExporter:
         try:
             date_obj = datetime.strptime(date_str, "%Y%m%dT%H%M%S")
             return timezone.localize(date_obj)
-        except ValueError:
-            return parser.parse(date_str).astimezone(timezone)
+        except ValueError as e:
+            logging.error(f"Failed to parse date: {date_str}. Error: {e}")
+            # You might want to implement a fallback parsing method here
+            return None
 
 
