@@ -9,6 +9,11 @@ import logging
 import sys
 from PIL import Image
 import numpy as np
+from dateutil.rrule import rrulestr
+from datetime import datetime
+import pytz
+
+logger = logging.getLogger(__name__)
 
 def load_config():
     with open("settings.yaml", "r") as file:
@@ -123,3 +128,26 @@ def clean_directories(directories):
                     item.unlink()
                 except Exception as e:
                     logging.error(f"Failed to delete file {item}: {e}")
+                    
+def get_next_occurrence(rrule_str: str, original_date: datetime, current_date: datetime) -> datetime:
+    try:
+        # Usamos la fecha actual pero mantenemos la hora original
+        start_date = current_date.replace(hour=original_date.hour, minute=original_date.minute, second=original_date.second)
+        
+        rrule = rrulestr(rrule_str, dtstart=start_date)
+        next_occurrence = rrule.after(start_date, inc=True)
+        
+        # Si la próxima ocurrencia es en el pasado, buscamos la siguiente
+        while next_occurrence and next_occurrence < current_date:
+            next_occurrence = rrule.after(next_occurrence, inc=False)
+        
+        if next_occurrence:
+            # Mantenemos la hora original
+            return next_occurrence.replace(hour=original_date.hour, minute=original_date.minute, second=original_date.second)
+        return None
+    except Exception as e:
+        logger.error(f"Error al calcular la próxima ocurrencia: {e}")
+        return None
+
+def is_recurrent_event(event_data: dict) -> bool:
+    return bool(event_data.get('RRULE'))

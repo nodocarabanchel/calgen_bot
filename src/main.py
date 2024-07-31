@@ -2,8 +2,8 @@ import io
 import asyncio
 import logging
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
-from utils import load_config, setup_logging, clean_directories, get_image_hash, are_images_similar
+from datetime import datetime, timedelta, timezone, time
+from utils import load_config, setup_logging, clean_directories, get_image_hash, are_images_similar, get_next_occurrence, is_recurrent_event
 from ics_uploader import extract_event_details_from_ics, send_event
 from calendar_generator import OCRReader, EntityExtractor, ICSExporter
 from telegram_bot import TelegramBot
@@ -103,16 +103,44 @@ async def main():
                 text_file.write(combined_text)
             logger.info(f"Extracting event info from: {combined_text[:100]}...")
             extracted_data = extractor.extract_event_info(combined_text)
-            if extracted_data and all([extracted_data.get('SUMMARY'), extracted_data.get('DTSTART'), extracted_data.get('LOCATION')]):
+            if extracted_data and any([extracted_data.get('SUMMARY'), extracted_data.get('DTSTART'), extracted_data.get('LOCATION')]):
                 logger.info(f"Extracted data: {extracted_data}")
                 
                 try:
-                    start_date = datetime.strptime(extracted_data['DTSTART'], "%Y%m%dT%H%M%S").replace(tzinfo=pytz.timezone("Europe/Madrid"))
-                    end_date = datetime.strptime(extracted_data['DTEND'], "%Y%m%dT%H%M%S").replace(tzinfo=pytz.timezone("Europe/Madrid")) if extracted_data.get('DTEND') else None
+                    start_date = None
+                    if extracted_data.get('DTSTART'):
+                        if ':' in extracted_data['DTSTART'] and len(extracted_data['DTSTART']) <= 5:
+                            # Solo se proporcionó la hora (HH:MM)
+                            time_obj = datetime.strptime(extracted_data['DTSTART'], "%H:%M").time()
+                            current_date = datetime.now(pytz.timezone("Europe/Madrid"))
+                            start_date = current_date.replace(hour=time_obj.hour, minute=time_obj.minute, second=0, microsecond=0)
+                        else:
+                            # Se proporcionó fecha y hora completas
+                            start_date = datetime.strptime(extracted_data['DTSTART'], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=pytz.timezone("Europe/Madrid"))
+                    
+                    if is_recurrent_event(extracted_data):
+                        logger.info(f"Recurrent event detected: {extracted_data['SUMMARY']}")
+                        if start_date:
+                            current_date = datetime.now(pytz.timezone("Europe/Madrid"))
+                            start_date = get_next_occurrence(extracted_data['RRULE'], start_date, current_date)
+                            if start_date:
+                                logger.info(f"Next occurrence for recurrent event: {start_date}")
+                            else:
+                                logger.warning(f"Unable to determine next occurrence for recurrent event: {extracted_data['SUMMARY']}")
+                        else:
+                            logger.error(f"No start time for recurrent event: {extracted_data['SUMMARY']}")
+                            continue
                     
                     if start_date is None:
-                        logger.error(f"Invalid start date: {extracted_data['DTSTART']}")
+                        logger.error(f"Unable to determine start date for event: {extracted_data['SUMMARY']}")
                         continue
+                    
+                    end_date = None
+                    if extracted_data.get('DTEND'):
+                        end_date = datetime.strptime(extracted_data['DTEND'], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=pytz.timezone("Europe/Madrid"))
+                    elif is_recurrent_event(extracted_data) and start_date:
+                        # Para eventos recurrentes, si no hay DTEND, asumimos una duración de 1 hora
+                        end_date = start_date + timedelta(hours=1)
                     
                     if db_manager.is_duplicate_event(extracted_data):
                         logger.info(f"Skipping duplicate event: {extracted_data['SUMMARY']}")

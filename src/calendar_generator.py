@@ -102,8 +102,8 @@ class EntityExtractor:
     def get_improved_prompt(self, text: str) -> str:
         return f"""Analiza el siguiente texto y extrae la información del evento en un formato JSON estructurado. Sigue estas reglas estrictamente:
 
-1. Utiliza el formato ISO 8601 para las fechas y horas (YYYY-MM-DDTHH:MM:SS) SOLO si se proporciona una fecha específica en el texto.
-2. Si no se especifica una fecha exacta, deja el campo DTSTART vacío.
+1. Utiliza el formato ISO 8601 para las fechas y horas (YYYY-MM-DDTHH:MM:SS) si se proporciona una fecha específica en el texto.
+2. Si no se especifica una fecha exacta pero hay una hora de inicio, utiliza el formato HH:MM para el campo DTSTART.
 3. Todas las fechas y horas deben estar en la zona horaria de España (Europe/Madrid).
 4. Para eventos recurrentes o de varios días, proporciona una regla RRULE adecuada.
 5. NO inventes ni infieras fechas que no estén explícitamente mencionadas en el texto.
@@ -111,7 +111,7 @@ class EntityExtractor:
 Estructura JSON requerida:
 {{
     "SUMMARY": "Título del evento",
-    "DTSTART": "YYYY-MM-DDTHH:MM:SS", // Dejar vacío si no hay fecha específica
+    "DTSTART": "YYYY-MM-DDTHH:MM:SS" o "HH:MM", // Usar HH:MM si solo se proporciona la hora
     "DTEND": "YYYY-MM-DDTHH:MM:SS", // Dejar vacío si no hay fecha de fin específica
     "LOCATION": "Ubicación del evento",
     "RRULE": "Regla de recurrencia en formato ICS estándar",
@@ -120,7 +120,7 @@ Estructura JSON requerida:
 
 Reglas para RRULE:
 - Para eventos de un solo día: deja el campo vacío.
-- Para eventos recurrentes: proporciona la regla completa (ej: "FREQ=WEEKLY;BYDAY=FR")
+- Para eventos recurrentes: proporciona la regla completa (ej: "FREQ=WEEKLY;BYDAY=WE")
 - NO incluyas fechas específicas en la RRULE a menos que estén explícitamente mencionadas en el texto.
 
 Asegúrate de que la RRULE sea coherente con la información proporcionada en el texto.
@@ -232,13 +232,3 @@ class ICSExporter:
         except Exception as e:
             logger.error(f"Error al exportar el ICS: {e}", exc_info=True)
 
-    def get_next_occurrence(self, rrule_str: str, current_date: datetime) -> Optional[datetime]:
-        try:
-            # Asumimos que el rrule_str está en formato correcto, por ejemplo:
-            # "FREQ=WEEKLY;BYDAY=WE"
-            rrule = rrulestr(rrule_str, dtstart=current_date)
-            next_occurrence = rrule.after(current_date, inc=True)
-            return next_occurrence
-        except Exception as e:
-            logger.error(f"Error al calcular la próxima ocurrencia: {e}")
-            return None
