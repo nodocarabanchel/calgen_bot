@@ -19,10 +19,6 @@ def load_config():
     with open("settings.yaml", "r") as file:
         return yaml.safe_load(file)
 
-def load_config():
-    with open("settings.yaml", "r") as file:
-        return yaml.safe_load(file)
-
 def setup_logging(config, log_name=None):
     log_file = config.get("logging", {}).get("log_file", "app/logs/app.log")
     log_level_str = config.get("logging", {}).get("log_level", "INFO").upper()
@@ -53,7 +49,6 @@ def setup_logging(config, log_name=None):
     logger.info(f"Log file: {log_file}")
 
     return logger
-
 
 def get_image_hash(image_path, hash_size=8):
     with Image.open(image_path) as img:

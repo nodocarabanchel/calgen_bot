@@ -18,7 +18,6 @@ from utils import setup_logging
 import logging
 import pytz
 
-
 logger = logging.getLogger(__name__)
 
 class OCRReader:
@@ -91,6 +90,13 @@ class OCRReader:
         else:
             raise ValueError(f"Unsupported file extension: {suffix}")
 
+import json
+from datetime import datetime
+import pytz
+import logging
+
+logger = logging.getLogger(__name__)
+
 class EntityExtractor:
     def __init__(self, config):
         self.config = config
@@ -107,12 +113,13 @@ class EntityExtractor:
 3. Todas las fechas y horas deben estar en la zona horaria de España (Europe/Madrid).
 4. Para eventos recurrentes o de varios días, proporciona una regla RRULE adecuada.
 5. NO inventes ni infieras fechas que no estén explícitamente mencionadas en el texto.
+6. NO incluyas el campo DTEND si no se menciona explícitamente una hora o fecha de finalización.
 
 Estructura JSON requerida:
 {{
     "SUMMARY": "Título del evento",
     "DTSTART": "YYYY-MM-DDTHH:MM:SS" o "HH:MM", // Usar HH:MM si solo se proporciona la hora
-    "DTEND": "YYYY-MM-DDTHH:MM:SS", // Dejar vacío si no hay fecha de fin específica
+    "DTEND": "YYYY-MM-DDTHH:MM:SS", // Omitir si no hay fecha/hora de fin específica
     "LOCATION": "Ubicación del evento",
     "RRULE": "Regla de recurrencia en formato ICS estándar",
     "ALL_DAY": true/false
@@ -129,7 +136,7 @@ Texto a analizar:
 
 {text}
 
-Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si algún campo no tiene información específica, déjalo vacío o null."""
+Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si algún campo no tiene información específica, omítelo del JSON."""
 
     def extract_event_info(self, text: str):
         model_type = self.config['external_api']['service'] if self.config['external_api']['use'] else 'local_model'
@@ -155,9 +162,11 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
 
                 event_data = json.loads(content)
                 
-                # Convertir las fechas al formato requerido por ICSExporter
-                event_data['DTSTART'] = self.convert_date_format(event_data['DTSTART'])
-                event_data['DTEND'] = self.convert_date_format(event_data['DTEND'])
+                # Handle time-only strings for DTSTART and DTEND
+                if 'DTSTART' in event_data:
+                    event_data['DTSTART'] = self.parse_datetime_or_time(event_data['DTSTART'])
+                if 'DTEND' in event_data:
+                    event_data['DTEND'] = self.parse_datetime_or_time(event_data['DTEND'])
                 
                 logger.info(f"Extracted calendar data: {event_data}")
                 return event_data
@@ -167,21 +176,26 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                 retries += 1
 
         logger.error("Failed to extract complete event info after maximum retries.")
-        return {
-            'SUMMARY': None,
-            'DTSTART': None,
-            'DTEND': None,
-            'LOCATION': None,
-            'RRULE': None,
-            'ALL_DAY': False
-        }
+        return {}
 
-    @staticmethod
-    def convert_date_format(date_str):
-        if date_str:
-            date_obj = datetime.fromisoformat(date_str)
-            return date_obj.strftime("%Y%m%dT%H%M%S")
-        return None
+    def parse_datetime_or_time(self, date_str):
+        if not date_str:
+            return None
+        
+        try:
+            # Try parsing as full datetime
+            return datetime.fromisoformat(date_str).replace(tzinfo=pytz.timezone("Europe/Madrid"))
+        except ValueError:
+            try:
+                # Try parsing as time only
+                time_obj = datetime.strptime(date_str, "%H:%M").time()
+                # Use current date with the given time
+                current_date = datetime.now(pytz.timezone("Europe/Madrid"))
+                return current_date.replace(hour=time_obj.hour, minute=time_obj.minute, second=0, microsecond=0)
+            except ValueError:
+                # If both parsing attempts fail, return None
+                logger.error(f"Unable to parse date/time: {date_str}")
+                return None
 
 class ICSExporter:
     def export(self, entities: Dict[str, str], output_path: Path):
@@ -231,4 +245,3 @@ class ICSExporter:
             logger.info(f"Evento exportado: {event.name}, Inicio: {event.begin}, Fin: {event.end}, Recurrencia: {rrule}")
         except Exception as e:
             logger.error(f"Error al exportar el ICS: {e}", exc_info=True)
-

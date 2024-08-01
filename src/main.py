@@ -107,56 +107,41 @@ async def main():
                 logger.info(f"Extracted data: {extracted_data}")
                 
                 try:
-                    start_date = None
-                    if extracted_data.get('DTSTART'):
-                        if ':' in extracted_data['DTSTART'] and len(extracted_data['DTSTART']) <= 5:
-                            # Solo se proporcionó la hora (HH:MM)
-                            time_obj = datetime.strptime(extracted_data['DTSTART'], "%H:%M").time()
-                            current_date = datetime.now(pytz.timezone("Europe/Madrid"))
-                            start_date = current_date.replace(hour=time_obj.hour, minute=time_obj.minute, second=0, microsecond=0)
-                        else:
-                            # Se proporcionó fecha y hora completas
-                            start_date = datetime.strptime(extracted_data['DTSTART'], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=pytz.timezone("Europe/Madrid"))
-                    
-                    if is_recurrent_event(extracted_data):
-                        logger.info(f"Recurrent event detected: {extracted_data['SUMMARY']}")
-                        if start_date:
-                            current_date = datetime.now(pytz.timezone("Europe/Madrid"))
-                            start_date = get_next_occurrence(extracted_data['RRULE'], start_date, current_date)
-                            if start_date:
-                                logger.info(f"Next occurrence for recurrent event: {start_date}")
-                            else:
-                                logger.warning(f"Unable to determine next occurrence for recurrent event: {extracted_data['SUMMARY']}")
-                        else:
-                            logger.error(f"No start time for recurrent event: {extracted_data['SUMMARY']}")
-                            continue
+                    start_date = extracted_data.get('DTSTART')
+                    end_date = extracted_data.get('DTEND')
                     
                     if start_date is None:
-                        logger.error(f"Unable to determine start date for event: {extracted_data['SUMMARY']}")
+                        logger.error(f"Unable to determine start date for event: {extracted_data.get('SUMMARY')}")
                         continue
                     
-                    end_date = None
-                    if extracted_data.get('DTEND'):
-                        end_date = datetime.strptime(extracted_data['DTEND'], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=pytz.timezone("Europe/Madrid"))
-                    elif is_recurrent_event(extracted_data) and start_date:
-                        # Para eventos recurrentes, si no hay DTEND, asumimos una duración de 1 hora
-                        end_date = start_date + timedelta(hours=1)
+                    if is_recurrent_event(extracted_data):
+                        rrule = extracted_data.get('RRULE')
+                        if rrule:
+                            current_date = datetime.now(pytz.timezone("Europe/Madrid"))
+                            next_date = get_next_occurrence(rrule, start_date, current_date)
+                            if next_date:
+                                start_date = next_date
+                            else:
+                                logger.warning(f"Unable to determine next occurrence for recurrent event: {extracted_data.get('SUMMARY')}")
                     
                     if db_manager.is_duplicate_event(extracted_data):
-                        logger.info(f"Skipping duplicate event: {extracted_data['SUMMARY']}")
+                        logger.info(f"Skipping duplicate event: {extracted_data.get('SUMMARY')}")
                     else:
-                        event_id = f"{extracted_data['SUMMARY']}_{start_date.isoformat()}_{extracted_data['LOCATION']}"
+                        event_id = f"{extracted_data.get('SUMMARY')}_{start_date.isoformat()}_{extracted_data.get('LOCATION')}"
                         if not db_manager.is_event_sent(event_id):
-                            exporter.export({
-                                'summary': extracted_data['SUMMARY'],
+                            event_data = {
+                                'summary': extracted_data.get('SUMMARY'),
                                 'dtstart': start_date,
-                                'dtend': end_date,
-                                'location': extracted_data['LOCATION'],
+                                'location': extracted_data.get('LOCATION'),
                                 'description': caption,
                                 'rrule': extracted_data.get('RRULE')
-                            }, ics_file_path)
+                            }
+                            if end_date:
+                                event_data['dtend'] = end_date
+                            
+                            exporter.export(event_data, ics_file_path)
                             logger.info(f"ICS file successfully generated: {img_file.name}")
-                            db_manager.add_event_title(extracted_data['SUMMARY'])
+                            db_manager.add_event_title(extracted_data.get('SUMMARY'))
                             db_manager.add_event(extracted_data)
                             processed_events += 1
                         else:
