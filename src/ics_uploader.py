@@ -106,19 +106,21 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     api_token = config["gancio_api"].get("token")
 
     start_datetime = datetime.fromtimestamp(event_details['start_datetime'], tz=pytz.UTC)
-    end_datetime = datetime.fromtimestamp(event_details['end_datetime'], tz=pytz.UTC)
-
-    # Determinar si el evento es de varios días
-    is_multidate = (end_datetime.date() - start_datetime.date()).days > 0
 
     data = {
         'title': event_details['title'].rstrip('`'),
         'place_name': event_details['place_name'],
         'place_address': event_details['place_address'].rstrip('`'),
         'start_datetime': str(int(start_datetime.timestamp())),
-        'end_datetime': str(int(end_datetime.timestamp())),
-        'multidate': 'true' if is_multidate else 'false'
+        'multidate': 'false'
     }
+
+    if 'end_datetime' in event_details:
+        end_datetime = datetime.fromtimestamp(event_details['end_datetime'], tz=pytz.UTC)
+        data['end_datetime'] = str(int(end_datetime.timestamp()))
+        data['multidate'] = 'true' if (end_datetime.date() - start_datetime.date()).days > 0 else 'false'
+    else:
+        logger.info(f"No end_datetime provided for event '{event_details['title']}'. Event will have no end time.")
 
     if 'recurrent' in event_details and event_details['recurrent']:
         data['recurrent'] = json.dumps(event_details['recurrent'])

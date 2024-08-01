@@ -90,55 +90,6 @@ class OCRReader:
         else:
             raise ValueError(f"Unsupported file extension: {suffix}")
 
-class EntityExtractor:
-    def __init__(self, config):
-        self.config = config
-        self.max_retries = 3
-        self.client = None
-        if config.get('external_api', {}).get('use') and config['external_api']['service'] == 'groq':
-            self.client = Groq(api_key=config['external_api']['api_key'])
-
-    def get_improved_prompt(self, text: str) -> str:
-        return f"""Analiza el siguiente texto y extrae la información del evento en un formato JSON estructurado. Sigue estas reglas estrictamente:
-
-1. Utiliza el formato ISO 8601 para las fechas y horas (YYYY-MM-DDTHH:MM:SS) si se proporciona una fecha específica en el texto.
-2. Si no se especifica una fecha exacta pero hay una hora de inicio, utiliza el formato HH:MM para el campo DTSTART.
-3. Todas las fechas y horas deben estar en la zona horaria de España (Europe/Madrid).
-4. Para eventos recurrentes o de varios días, proporciona una regla RRULE adecuada.
-5. NO inventes ni infieras fechas que no estén explícitamente mencionadas en el texto.
-6. NO incluyas el campo DTEND si no se menciona explícitamente una hora o fecha de finalización.
-
-Estructura JSON requerida:
-{{
-    "SUMMARY": "Título del evento",
-    "DTSTART": "YYYY-MM-DDTHH:MM:SS" o "HH:MM", // Usar HH:MM si solo se proporciona la hora
-    "DTEND": "YYYY-MM-DDTHH:MM:SS", // Omitir si no hay fecha/hora de fin específica
-    "LOCATION": "Ubicación del evento",
-    "RRULE": "Regla de recurrencia en formato ICS estándar",
-    "ALL_DAY": true/false
-}}
-
-Reglas para RRULE:
-- Para eventos de un solo día: deja el campo vacío.
-- Para eventos recurrentes: proporciona la regla completa (ej: "FREQ=WEEKLY;BYDAY=WE")
-- NO incluyas fechas específicas en la RRULE a menos que estén explícitamente mencionadas en el texto.
-
-Asegúrate de que la RRULE sea coherente con la información proporcionada en el texto.
-
-Texto a analizar:
-
-{text}
-
-Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si algún campo no tiene información específica, omítelo del JSON."""
-
-    import json
-import logging
-from datetime import datetime, timedelta
-import pytz
-from dateutil.rrule import rrulestr
-from utils import get_next_valid_date
-
-logger = logging.getLogger(__name__)
 
 class EntityExtractor:
     def __init__(self, config):
@@ -180,6 +131,54 @@ Texto a analizar:
 {text}
 
 Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si algún campo no tiene información específica, omítelo del JSON."""
+
+    def validate_and_fix_json(self, json_data: str) -> dict:
+        if not self.client:
+            logger.warning("El cliente Groq no está inicializado. No se puede validar el JSON.")
+            return json.loads(json_data)  # Devolver JSON parseado sin validación
+
+        prompt = f"""
+        Valida el siguiente JSON para un evento y corrige cualquier problema:
+        {json_data}
+
+        Asegúrate de que siga esta estructura:
+        {{
+            "SUMMARY": "Título del evento",
+            "DTSTART": "YYYY-MM-DDTHH:MM:SS" o "HH:MM",
+            "DTEND": "YYYY-MM-DDTHH:MM:SS" (opcional),
+            "LOCATION": "Ubicación del evento",
+            "RRULE": "Regla de recurrencia en formato ICS estándar" (opcional),
+            "ALL_DAY": true/false
+        }}
+
+        Reglas:
+        1. Usa ISO 8601 para fechas y horas (YYYY-MM-DDTHH:MM:SS).
+        2. Usa HH:MM para DTSTART si solo se proporciona la hora.
+        3. Omite DTEND si no se menciona explícitamente.
+        4. Asegúrate de que RRULE esté en el formato ICS correcto si está presente.
+        5. Elimina cualquier campo que no esté en la estructura especificada.
+
+        Devuelve solo el JSON corregido, sin explicaciones.
+        """
+
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                chat_completion = self.client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=self.config['external_api']['model_name'],
+                )
+                corrected_json = chat_completion.choices[0].message.content
+                return json.loads(corrected_json)
+            except json.JSONDecodeError as e:
+                logger.error(f"Error al analizar el JSON corregido: {e}")
+                retries += 1
+            except Exception as e:
+                logger.error(f"Error durante la validación del JSON: {e}", exc_info=True)
+                retries += 1
+
+        logger.error("No se pudo validar y corregir el JSON después del número máximo de intentos.")
+        return json.loads(json_data)  # Devolver JSON original parseado si fallan todos los intentos
 
     def extract_event_info(self, text: str):
         model_type = self.config['external_api']['service'] if self.config['external_api']['use'] else 'local_model'
@@ -189,12 +188,12 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
         while retries < self.max_retries:
             try:
                 if model_type == 'groq' and self.client:
-                    logger.debug(f"Sending request to Groq API with prompt: {prompt}")
+                    logger.debug(f"Enviando solicitud a la API de Groq con el prompt: {prompt}")
                     chat_completion = self.client.chat.completions.create(
                         messages=[{"role": "user", "content": prompt}],
                         model=self.config['external_api']['model_name'],
                     )
-                    logger.debug(f"Received response from Groq API: {chat_completion}")
+                    logger.debug(f"Respuesta recibida de la API de Groq: {chat_completion}")
                     content = chat_completion.choices[0].message.content
                 elif model_type == 'local_model' and self.config['local_model']['use']:
                     response = ollama.chat(
@@ -203,11 +202,14 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                     )
                     content = response['message']['content'].strip() if 'message' in response and 'content' in response['message'] else "{}"
 
-                logger.debug(f"Raw content: {content}")
+                logger.debug(f"Contenido sin procesar: {content}")
                 event_data = json.loads(content)
-                logger.debug(f"Parsed JSON content: {event_data}")
+                logger.debug(f"Contenido JSON parseado: {event_data}")
                 
-                # If event_data is a list, take the first item
+                # Validar y corregir JSON
+                event_data = self.validate_and_fix_json(json.dumps(event_data))
+                
+                # Si event_data es una lista, tomar el primer elemento
                 if isinstance(event_data, list) and len(event_data) > 0:
                     event_data = event_data[0]
                 
@@ -250,18 +252,18 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                 else:
                     logger.warning("No se proporcionó fecha/hora de finalización. El evento no tendrá hora de finalización.")
 
-                logger.info(f"Extracted event data: {event_data}")
+                logger.info(f"Datos del evento extraídos: {event_data}")
                 return event_data
 
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON: {e}")
-                logger.debug(f"Raw content: {content}")
+                logger.error(f"Error al analizar JSON: {e}")
+                logger.debug(f"Contenido sin procesar: {content}")
                 retries += 1
             except Exception as e:
-                logger.error(f"Error during event info extraction: {e}", exc_info=True)
+                logger.error(f"Error durante la extracción de información del evento: {e}", exc_info=True)
                 retries += 1
 
-        logger.error("Failed to extract complete event info after maximum retries.")
+        logger.error("No se pudo extraer la información completa del evento después del número máximo de intentos.")
         return {}
 
     def parse_datetime_or_time(self, date_str):
@@ -269,20 +271,19 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
             return None
         
         try:
-            # Try parsing as full datetime
+            # Intentar analizar como datetime completo
             return datetime.fromisoformat(date_str).replace(tzinfo=pytz.timezone("Europe/Madrid"))
         except ValueError:
             try:
-                # Try parsing as time only
+                # Intentar analizar como solo hora
                 time_obj = datetime.strptime(date_str, "%H:%M").time()
-                # Use current date with the given time
+                # Usar la fecha actual con la hora dada
                 current_date = datetime.now(pytz.timezone("Europe/Madrid"))
                 return current_date.replace(hour=time_obj.hour, minute=time_obj.minute, second=0, microsecond=0)
             except ValueError:
-                # If both parsing attempts fail, return None
-                logger.error(f"Unable to parse date/time: {date_str}")
+                # Si ambos intentos de análisis fallan, devolver None
+                logger.error(f"No se pudo analizar la fecha/hora: {date_str}")
                 return None
-
 class ICSExporter:
     def export(self, entities: Dict[str, str], output_path: Path):
         logger.info(f"Attempting to export ICS with entities: {entities}")
