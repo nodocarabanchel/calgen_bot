@@ -22,37 +22,17 @@ def extract_event_details_from_ics(ics_file):
                 if component.name == "VEVENT":
                     try:
                         start = component.get('DTSTART').dt
-                        end = component.get('DTEND', component.get('DTSTART')).dt
+                        end = component.get('DTEND').dt if component.get('DTEND') else None
                         
                         # Convertir date a datetime si es necesario
                         if isinstance(start, date) and not isinstance(start, datetime):
-                            start = datetime.combine(start, datetime.min.time())
-                        if isinstance(end, date) and not isinstance(end, datetime):
-                            end = datetime.combine(end, datetime.max.time())
+                            start = datetime.combine(start, time.min)
 
                         # Asegurar que las fechas están en UTC
                         madrid_tz = pytz.timezone('Europe/Madrid')
                         if start.tzinfo is None:
                             start = madrid_tz.localize(start)
-                        if end.tzinfo is None:
-                            end = madrid_tz.localize(end)
-
-                        # Manejar eventos de varios días
-                        is_multi_day = False
-                        if isinstance(start, datetime) and isinstance(end, datetime):
-                            duration = end - start
-                            is_multi_day = duration.days > 0
-
-                        # Manejar eventos recurrentes
-                        recurrence = component.get('RRULE')
-                        recurrence_info = None
-                        if recurrence:
-                            rrule_string = vRecur.from_ical(recurrence).to_ical().decode()
-                            recurrence_info = parse_recurrence_rule(rrule_string)
-                            
-                            # Ajustar la fecha de inicio al próximo día válido
-                            start = get_next_valid_date(start, rrule_string)
-                            end = start + (end - component.get('DTSTART').dt)
+                        start = start.astimezone(pytz.UTC)
 
                         event_details = {
                             'title': str(component.get('SUMMARY')),
@@ -60,11 +40,26 @@ def extract_event_details_from_ics(ics_file):
                             'place_name': str(component.get('LOCATION')).split(",")[0],
                             'place_address': str(component.get('LOCATION')),
                             'start_datetime': int(start.timestamp()),
-                            'end_datetime': int(end.timestamp()),
-                            'multidate': is_multi_day,
-                            'recurrent': recurrence_info,
+                            'recurrent': None,
                             'categories': []
                         }
+
+                        if end:
+                            if isinstance(end, date) and not isinstance(end, datetime):
+                                end = datetime.combine(end, time.max)
+                            if end.tzinfo is None:
+                                end = madrid_tz.localize(end)
+                            end = end.astimezone(pytz.UTC)
+                            event_details['end_datetime'] = int(end.timestamp())
+                            event_details['multidate'] = (end.date() - start.date()).days > 0
+                        else:
+                            event_details['multidate'] = False
+
+                        # Manejar eventos recurrentes
+                        recurrence = component.get('RRULE')
+                        if recurrence:
+                            rrule_string = vRecur.from_ical(recurrence).to_ical().decode()
+                            event_details['recurrent'] = parse_recurrence_rule(rrule_string)
 
                         # Add geolocation and categories if available
                         config = load_config()
@@ -83,14 +78,6 @@ def extract_event_details_from_ics(ics_file):
         logger.error(f"Failed to extract event details from ICS file: {e}", exc_info=True)
     return []
 
-
-def save_to_file(data, file_path):
-    try:
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-    except Exception as e:
-        logger.error(f"Failed to save data to file: {e}")
-
 def compress_image(image_path, max_size_kb=500):
     img = Image.open(image_path)
     img_byte_arr = io.BytesIO()
@@ -107,21 +94,19 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     api_url = config["gancio_api"]["url"].rstrip('"')
     api_token = config["gancio_api"].get("token")
 
-    start_datetime = datetime.fromtimestamp(event_details['start_datetime'])
-    end_datetime = datetime.fromtimestamp(event_details['end_datetime'])
-
-    # Si el evento termina a medianoche, ajustamos para que termine un minuto antes
-    if end_datetime.time() == time(0, 0):
-        end_datetime = end_datetime - timedelta(minutes=1)
+    start_datetime = datetime.fromtimestamp(event_details['start_datetime'], tz=pytz.UTC)
 
     data = {
         'title': event_details['title'].rstrip('`'),
         'place_name': event_details['place_name'],
         'place_address': event_details['place_address'].rstrip('`'),
         'start_datetime': str(int(start_datetime.timestamp())),
-        'end_datetime': str(int(end_datetime.timestamp())),
-        'multidate': 'true' if event_details.get('is_multi_day') else 'false'
+        'multidate': 'true' if event_details.get('multidate') else 'false'
     }
+
+    if 'end_datetime' in event_details:
+        end_datetime = datetime.fromtimestamp(event_details['end_datetime'], tz=pytz.UTC)
+        data['end_datetime'] = str(int(end_datetime.timestamp()))
 
     if 'place_latitude' in event_details and 'place_longitude' in event_details:
         data['place_latitude'] = str(event_details['place_latitude'])

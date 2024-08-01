@@ -162,13 +162,17 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
 
                 event_data = json.loads(content)
                 
+                # If event_data is a list, take the first item
+                if isinstance(event_data, list) and len(event_data) > 0:
+                    event_data = event_data[0]
+                    
                 # Handle time-only strings for DTSTART and DTEND
                 if 'DTSTART' in event_data:
                     event_data['DTSTART'] = self.parse_datetime_or_time(event_data['DTSTART'])
                 if 'DTEND' in event_data:
                     event_data['DTEND'] = self.parse_datetime_or_time(event_data['DTEND'])
                 
-                logger.info(f"Extracted calendar data: {event_data}")
+                logger.info(f"  : {event_data}")
                 return event_data
 
             except Exception as e:
