@@ -117,10 +117,15 @@ async def main():
                     if is_recurrent_event(extracted_data):
                         rrule = extracted_data.get('RRULE')
                         if rrule:
+                            start_date = get_next_valid_date(extracted_data['DTSTART'], rrule)
                             current_date = datetime.now(pytz.timezone("Europe/Madrid"))
                             next_date = get_next_occurrence(rrule, start_date, current_date)
                             if next_date:
-                                start_date = next_date
+                                extracted_data['DTSTART'] = next_date
+                                # Adjust DTEND if present
+                                if 'DTEND' in extracted_data:
+                                    duration = extracted_data['DTEND'] - extracted_data['DTSTART']
+                                    extracted_data['DTEND'] = next_date + duration
                             else:
                                 logger.warning(f"Unable to determine next occurrence for recurrent event: {extracted_data.get('SUMMARY')}")
                     

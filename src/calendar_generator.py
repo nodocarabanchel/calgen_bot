@@ -14,7 +14,7 @@ from ics.grammar.parse import ContentLine
 from groq import Groq
 import re
 import json
-from utils import setup_logging
+from utils import setup_logging, get_next_valid_date
 import logging
 import pytz
 
@@ -90,10 +90,53 @@ class OCRReader:
         else:
             raise ValueError(f"Unsupported file extension: {suffix}")
 
-import json
-from datetime import datetime
-import pytz
+class EntityExtractor:
+    def __init__(self, config):
+        self.config = config
+        self.max_retries = 3
+        self.client = None
+        if config.get('external_api', {}).get('use') and config['external_api']['service'] == 'groq':
+            self.client = Groq(api_key=config['external_api']['api_key'])
+
+    def get_improved_prompt(self, text: str) -> str:
+        return f"""Analiza el siguiente texto y extrae la información del evento en un formato JSON estructurado. Sigue estas reglas estrictamente:
+
+1. Utiliza el formato ISO 8601 para las fechas y horas (YYYY-MM-DDTHH:MM:SS) si se proporciona una fecha específica en el texto.
+2. Si no se especifica una fecha exacta pero hay una hora de inicio, utiliza el formato HH:MM para el campo DTSTART.
+3. Todas las fechas y horas deben estar en la zona horaria de España (Europe/Madrid).
+4. Para eventos recurrentes o de varios días, proporciona una regla RRULE adecuada.
+5. NO inventes ni infieras fechas que no estén explícitamente mencionadas en el texto.
+6. NO incluyas el campo DTEND si no se menciona explícitamente una hora o fecha de finalización.
+
+Estructura JSON requerida:
+{{
+    "SUMMARY": "Título del evento",
+    "DTSTART": "YYYY-MM-DDTHH:MM:SS" o "HH:MM", // Usar HH:MM si solo se proporciona la hora
+    "DTEND": "YYYY-MM-DDTHH:MM:SS", // Omitir si no hay fecha/hora de fin específica
+    "LOCATION": "Ubicación del evento",
+    "RRULE": "Regla de recurrencia en formato ICS estándar",
+    "ALL_DAY": true/false
+}}
+
+Reglas para RRULE:
+- Para eventos de un solo día: deja el campo vacío.
+- Para eventos recurrentes: proporciona la regla completa (ej: "FREQ=WEEKLY;BYDAY=WE")
+- NO incluyas fechas específicas en la RRULE a menos que estén explícitamente mencionadas en el texto.
+
+Asegúrate de que la RRULE sea coherente con la información proporcionada en el texto.
+
+Texto a analizar:
+
+{text}
+
+Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si algún campo no tiene información específica, omítelo del JSON."""
+
+    import json
 import logging
+from datetime import datetime, timedelta
+import pytz
+from dateutil.rrule import rrulestr
+from utils import get_next_valid_date
 
 logger = logging.getLogger(__name__)
 
@@ -160,23 +203,62 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                     )
                     content = response['message']['content'].strip() if 'message' in response and 'content' in response['message'] else "{}"
 
+                logger.debug(f"Raw content: {content}")
                 event_data = json.loads(content)
+                logger.debug(f"Parsed JSON content: {event_data}")
                 
                 # If event_data is a list, take the first item
                 if isinstance(event_data, list) and len(event_data) > 0:
                     event_data = event_data[0]
-                    
-                # Handle time-only strings for DTSTART and DTEND
-                if 'DTSTART' in event_data:
-                    event_data['DTSTART'] = self.parse_datetime_or_time(event_data['DTSTART'])
-                if 'DTEND' in event_data:
-                    event_data['DTEND'] = self.parse_datetime_or_time(event_data['DTEND'])
                 
-                logger.info(f"  : {event_data}")
+                # Obtener la fecha actual en la zona horaria de Madrid
+                current_date = datetime.now(pytz.timezone('Europe/Madrid'))
+                
+                # Parsear fecha y hora de inicio
+                start_str = event_data.get('DTSTART')
+                if start_str:
+                    if 'T' in start_str:  # Formato completo YYYY-MM-DDTHH:MM:SS
+                        start_date_time = datetime.fromisoformat(start_str).replace(tzinfo=pytz.timezone('Europe/Madrid'))
+                    else:  # Solo hora HH:MM
+                        start_time = datetime.strptime(start_str, "%H:%M").time()
+                        start_date_time = current_date.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
+                else:
+                    logger.warning("No se proporcionó fecha/hora de inicio. Usando la fecha/hora actual.")
+                    start_date_time = current_date
+
+                # Ajustar a la próxima ocurrencia si es un evento recurrente
+                if 'RRULE' in event_data:
+                    rrule = event_data['RRULE'].strip()
+                    start_date_time = get_next_valid_date(start_date_time, rrule)
+                
+                event_data['DTSTART'] = start_date_time
+
+                # Parsear fecha y hora de finalización
+                end_str = event_data.get('DTEND')
+                if end_str:
+                    if 'T' in end_str:  # Formato completo YYYY-MM-DDTHH:MM:SS
+                        end_date_time = datetime.fromisoformat(end_str).replace(tzinfo=pytz.timezone('Europe/Madrid'))
+                    else:  # Solo hora HH:MM
+                        end_time = datetime.strptime(end_str, "%H:%M").time()
+                        end_date_time = start_date_time.replace(hour=end_time.hour, minute=end_time.minute)
+                    
+                    # Si la hora de finalización es anterior a la de inicio, asumimos que es el día siguiente
+                    if end_date_time <= start_date_time:
+                        end_date_time += timedelta(days=1)
+                    
+                    event_data['DTEND'] = end_date_time
+                else:
+                    logger.warning("No se proporcionó fecha/hora de finalización. El evento no tendrá hora de finalización.")
+
+                logger.info(f"Extracted event data: {event_data}")
                 return event_data
 
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON: {e}")
+                logger.debug(f"Raw content: {content}")
+                retries += 1
             except Exception as e:
-                logger.error(f"Error during event info extraction: {e}")
+                logger.error(f"Error during event info extraction: {e}", exc_info=True)
                 retries += 1
 
         logger.error("Failed to extract complete event info after maximum retries.")
@@ -222,6 +304,11 @@ class ICSExporter:
             logger.warning("No se proporcionó fecha de inicio para la exportación ICS. Ignorando este evento.")
             return
 
+        # Add this check
+        if end_date and end_date <= start_date:
+            logger.warning(f"End date ({end_date}) is not after start date ({start_date}). Adjusting end date.")
+            end_date = start_date + timedelta(hours=1)  # Set end date to 1 hour after start date
+
         try:
             calendar = Calendar()
             event = Event()
@@ -239,6 +326,12 @@ class ICSExporter:
                     rrule = ContentLine.parse('RRULE:' + rrule)
                 event.extra.append(rrule)
 
+                # Add this check for recurring events
+                if end_date and end_date <= start_date:
+                    logger.warning(f"For recurring event, end date ({end_date}) is not after start date ({start_date}). Adjusting end date.")
+                    end_date = start_date + timedelta(hours=1)
+                    event.end = end_date
+
             calendar.events.add(event)
 
             calendar_data = calendar.serialize()
@@ -249,3 +342,12 @@ class ICSExporter:
             logger.info(f"Evento exportado: {event.name}, Inicio: {event.begin}, Fin: {event.end}, Recurrencia: {rrule}")
         except Exception as e:
             logger.error(f"Error al exportar el ICS: {e}", exc_info=True)
+
+    def get_next_occurrence(self, rrule_str: str, current_date: datetime) -> datetime:
+        try:
+            rrule = rrulestr(rrule_str, dtstart=current_date)
+            next_occurrence = rrule.after(current_date, inc=True)
+            return next_occurrence
+        except Exception as e:
+            logger.error(f"Error al calcular la próxima ocurrencia: {e}")
+            return None

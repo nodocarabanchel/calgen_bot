@@ -124,7 +124,7 @@ def clean_directories(directories):
                     item.unlink()
                 except Exception as e:
                     logging.error(f"Failed to delete file {item}: {e}")
-                    
+
 def get_next_occurrence(rrule_str: str, original_date: datetime, current_date: datetime) -> datetime:
     try:
         # Usamos la fecha actual pero mantenemos la hora original
@@ -185,13 +185,12 @@ def get_next_valid_date(start_date, rrule):
     byday = re.search(r'BYDAY=([^;]+)', rrule)
     if byday:
         day_map = {'MO': 0, 'TU': 1, 'WE': 2, 'TH': 3, 'FR': 4, 'SA': 5, 'SU': 6}
-        target_day = day_map.get(byday.group(1), 0)
+        target_days = [day_map.get(day, 0) for day in byday.group(1).split(',')]
         
-        while start_date.weekday() != target_day:
+        while start_date.weekday() not in target_days:
             start_date += timedelta(days=1)
     
     return start_date
 
 def is_recurrent_event(event_data: dict) -> bool:
     return bool(event_data.get('recurrent'))
-
