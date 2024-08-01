@@ -106,33 +106,36 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     api_token = config["gancio_api"].get("token")
 
     start_datetime = datetime.fromtimestamp(event_details['start_datetime'], tz=pytz.UTC)
+    end_datetime = datetime.fromtimestamp(event_details['end_datetime'], tz=pytz.UTC)
+
+    # Determinar si el evento es de varios días
+    is_multidate = (end_datetime.date() - start_datetime.date()).days > 0
 
     data = {
         'title': event_details['title'].rstrip('`'),
         'place_name': event_details['place_name'],
         'place_address': event_details['place_address'].rstrip('`'),
         'start_datetime': str(int(start_datetime.timestamp())),
-        'multidate': 'true' if event_details.get('multidate') else 'false'
+        'end_datetime': str(int(end_datetime.timestamp())),
+        'multidate': 'true' if is_multidate else 'false'
     }
 
-    if 'end_datetime' in event_details:
-        end_datetime = datetime.fromtimestamp(event_details['end_datetime'], tz=pytz.UTC)
-        data['end_datetime'] = str(int(end_datetime.timestamp()))
+    if 'recurrent' in event_details and event_details['recurrent']:
+        data['recurrent'] = json.dumps(event_details['recurrent'])
+    else:
+        data['recurrent'] = ''
 
     if 'place_latitude' in event_details and 'place_longitude' in event_details:
         data['place_latitude'] = str(event_details['place_latitude'])
         data['place_longitude'] = str(event_details['place_longitude'])
 
-    if event_details.get('recurrent'):
-        data['recurrent'] = json.dumps(event_details['recurrent'])
+    if 'description' in event_details and event_details['description'].strip():
+        data['description'] = event_details['description'].strip()
 
     categories = event_details.get('categories', [])
     if categories:
         for i, category in enumerate(categories):
             data[f'tags[{i}]'] = category
-
-    if 'description' in event_details and event_details['description'].strip():
-        data['description'] = event_details['description'].strip()
 
     headers = {}
     if api_token:
@@ -156,6 +159,9 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
             logger.warning(f"Unsupported image type: {img_type}")
     else:
         logger.warning("Image path is not provided or does not exist.")
+
+    # Imprimir los datos que se van a enviar para depuración
+    logger.debug(f"Datos a enviar a la API: {json.dumps(data, indent=2)}")
 
     retries = 0
     total_wait_time = 0
