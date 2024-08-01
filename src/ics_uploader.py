@@ -3,7 +3,7 @@ from pathlib import Path
 import requests
 import json
 from icalendar import Calendar, vRecur
-from utils import get_geolocation, save_to_file, load_config, parse_recurrence_rule
+from utils import get_geolocation, save_to_file, load_config, parse_recurrence_rule, get_next_valid_date
 import imghdr
 from PIL import Image
 import io
@@ -49,6 +49,10 @@ def extract_event_details_from_ics(ics_file):
                         if recurrence:
                             rrule_string = vRecur.from_ical(recurrence).to_ical().decode()
                             recurrence_info = parse_recurrence_rule(rrule_string)
+                            
+                            # Ajustar la fecha de inicio al próximo día válido
+                            start = get_next_valid_date(start, rrule_string)
+                            end = start + (end - component.get('DTSTART').dt)
 
                         event_details = {
                             'title': str(component.get('SUMMARY')),
@@ -78,6 +82,7 @@ def extract_event_details_from_ics(ics_file):
     except Exception as e:
         logger.error(f"Failed to extract event details from ICS file: {e}", exc_info=True)
     return []
+
 
 def save_to_file(data, file_path):
     try:

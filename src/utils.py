@@ -11,7 +11,7 @@ import sys
 from PIL import Image
 import numpy as np
 from dateutil.rrule import rrulestr
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 logger = logging.getLogger(__name__)
@@ -151,8 +151,6 @@ def is_recurrent_event(event_data: dict) -> bool:
 def parse_recurrence_rule(rrule):
     frequency = re.search(r'FREQ=(\w+)', rrule)
     interval = re.search(r'INTERVAL=(\d+)', rrule)
-    byday = re.search(r'BYDAY=([^;]+)', rrule)
-    bymonthday = re.search(r'BYMONTHDAY=(\d+)', rrule)
     
     if not frequency:
         return None
@@ -166,6 +164,8 @@ def parse_recurrence_rule(rrule):
             recurrent['frequency'] = f"{interval.group(1)}w"
     elif freq == 'MONTHLY':
         recurrent['frequency'] = '1m'
+        byday = re.search(r'BYDAY=([^;]+)', rrule)
+        bymonthday = re.search(r'BYMONTHDAY=(\d+)', rrule)
         if bymonthday:
             recurrent['type'] = 'ordinal'
         elif byday:
@@ -177,10 +177,21 @@ def parse_recurrence_rule(rrule):
                     if day_num:
                         recurrent['type'] = int(day_num)
                     else:
-                        # If no number is specified, it's treated as every week
                         recurrent['type'] = 0
     
     return recurrent
 
+def get_next_valid_date(start_date, rrule):
+    byday = re.search(r'BYDAY=([^;]+)', rrule)
+    if byday:
+        day_map = {'MO': 0, 'TU': 1, 'WE': 2, 'TH': 3, 'FR': 4, 'SA': 5, 'SU': 6}
+        target_day = day_map.get(byday.group(1), 0)
+        
+        while start_date.weekday() != target_day:
+            start_date += timedelta(days=1)
+    
+    return start_date
+
 def is_recurrent_event(event_data: dict) -> bool:
     return bool(event_data.get('recurrent'))
+
