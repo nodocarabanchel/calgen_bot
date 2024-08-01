@@ -1,4 +1,5 @@
 import io
+import re
 import yaml
 import logging
 import requests
@@ -146,3 +147,40 @@ def get_next_occurrence(rrule_str: str, original_date: datetime, current_date: d
 
 def is_recurrent_event(event_data: dict) -> bool:
     return bool(event_data.get('RRULE'))
+
+def parse_recurrence_rule(rrule):
+    frequency = re.search(r'FREQ=(\w+)', rrule)
+    interval = re.search(r'INTERVAL=(\d+)', rrule)
+    byday = re.search(r'BYDAY=([^;]+)', rrule)
+    bymonthday = re.search(r'BYMONTHDAY=(\d+)', rrule)
+    
+    if not frequency:
+        return None
+    
+    freq = frequency.group(1)
+    recurrent = {}
+    
+    if freq == 'WEEKLY':
+        recurrent['frequency'] = '1w'
+        if interval:
+            recurrent['frequency'] = f"{interval.group(1)}w"
+    elif freq == 'MONTHLY':
+        recurrent['frequency'] = '1m'
+        if bymonthday:
+            recurrent['type'] = 'ordinal'
+        elif byday:
+            days = byday.group(1).split(',')
+            if len(days) == 1:
+                day_match = re.search(r'(-?\d*)(\w+)', days[0])
+                if day_match:
+                    day_num = day_match.group(1)
+                    if day_num:
+                        recurrent['type'] = int(day_num)
+                    else:
+                        # If no number is specified, it's treated as every week
+                        recurrent['type'] = 0
+    
+    return recurrent
+
+def is_recurrent_event(event_data: dict) -> bool:
+    return bool(event_data.get('recurrent'))

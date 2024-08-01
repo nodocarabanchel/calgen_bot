@@ -3,7 +3,7 @@ from pathlib import Path
 import requests
 import json
 from icalendar import Calendar, vRecur
-from utils import get_geolocation, save_to_file, load_config
+from utils import get_geolocation, save_to_file, load_config, parse_recurrence_rule
 import imghdr
 from PIL import Image
 import io
@@ -47,7 +47,8 @@ def extract_event_details_from_ics(ics_file):
                         recurrence = component.get('RRULE')
                         recurrence_info = None
                         if recurrence:
-                            recurrence_info = vRecur.from_ical(recurrence).to_ical().decode()
+                            rrule_string = vRecur.from_ical(recurrence).to_ical().decode()
+                            recurrence_info = parse_recurrence_rule(rrule_string)
 
                         event_details = {
                             'title': str(component.get('SUMMARY')),
@@ -121,8 +122,8 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
         data['place_latitude'] = str(event_details['place_latitude'])
         data['place_longitude'] = str(event_details['place_longitude'])
 
-    if event_details.get('recurrence'):
-        data['recurrence'] = event_details['recurrence'].rstrip('`')
+    if event_details.get('recurrent'):
+        data['recurrent'] = json.dumps(event_details['recurrent'])
 
     categories = event_details.get('categories', [])
     if categories:
