@@ -1,6 +1,6 @@
 import hashlib
-from datetime import datetime
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +14,8 @@ class EventFingerprint:
 
     def _normalize_text(self, text):
         if text is None:
-            return ''
-        return ' '.join(str(text).lower().split())
+            return ""
+        return " ".join(str(text).lower().split())
 
     def _normalize_date(self, date):
         if isinstance(date, str):
@@ -32,8 +32,7 @@ class EventFingerprint:
                         return datetime.strptime(date, "%Y-%m-%d").strftime("%Y-%m-%d")
                     except ValueError:
                         # Si todos fallan, registra un error y devuelve la fecha como está
-                        print(
-                            f"Warning: Unable to parse date {date}. Using as is.")
+                        print(f"Warning: Unable to parse date {date}. Using as is.")
                         return date
         elif isinstance(date, datetime):
             return date.strftime("%Y-%m-%d")
@@ -41,7 +40,9 @@ class EventFingerprint:
             return str(date)
 
     def generate(self):
-        fingerprint = f"{self.summary}|{self.date}|{self.location}|{self.description[:100]}"
+        fingerprint = (
+            f"{self.summary}|{self.date}|{self.location}|{self.description[:100]}"
+        )
         return hashlib.md5(fingerprint.encode()).hexdigest()
 
     def is_similar(self, other_fingerprint, threshold=0.8):

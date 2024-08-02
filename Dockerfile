@@ -73,6 +73,16 @@ RUN chmod +x /app/cron_script.sh /app/check_errors.sh
 COPY logrotate.conf /etc/logrotate.d/app-logs
 RUN chmod 644 /etc/logrotate.d/app-logs
 
+# Ensure logrotate state directory exists and has correct permissions
+RUN mkdir -p /var/lib/logrotate && \
+    chown appuser:appuser /var/lib/logrotate && \
+    chmod 755 /var/lib/logrotate
+
+# Ensure the logrotate state file exists and has correct permissions
+RUN touch /var/lib/logrotate/status && \
+    chown appuser:appuser /var/lib/logrotate/status && \
+    chmod 640 /var/lib/logrotate/status
+
 # Configurar msmtp
 COPY msmtprc /etc/msmtprc
 RUN chmod 644 /etc/msmtprc
