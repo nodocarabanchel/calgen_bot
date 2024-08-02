@@ -4,6 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class DatabaseManager:
     def __init__(self, db_path):
         self.conn = sqlite3.connect(db_path)
@@ -82,7 +83,8 @@ class DatabaseManager:
 
     def is_hash_processed(self, image_hash):
         try:
-            self.cursor.execute("SELECT * FROM image_hashes WHERE hash = ?", (image_hash,))
+            self.cursor.execute(
+                "SELECT * FROM image_hashes WHERE hash = ?", (image_hash,))
             return self.cursor.fetchone() is not None
         except sqlite3.Error as e:
             logger.error(f"Error checking processed hash: {e}")
@@ -90,14 +92,16 @@ class DatabaseManager:
 
     def mark_image_as_processed(self, image_name):
         try:
-            self.cursor.execute("INSERT OR REPLACE INTO processed_images (image_name) VALUES (?)", (image_name,))
+            self.cursor.execute(
+                "INSERT OR REPLACE INTO processed_images (image_name) VALUES (?)", (image_name,))
             self.conn.commit()
         except sqlite3.Error as e:
             logger.error(f"Error marking image as processed: {e}")
 
     def is_image_processed(self, image_name):
         try:
-            self.cursor.execute("SELECT * FROM processed_images WHERE image_name = ?", (image_name,))
+            self.cursor.execute(
+                "SELECT * FROM processed_images WHERE image_name = ?", (image_name,))
             return self.cursor.fetchone() is not None
         except sqlite3.Error as e:
             logger.error(f"Error checking processed image: {e}")
@@ -105,14 +109,16 @@ class DatabaseManager:
 
     def mark_image_as_downloaded(self, image_id):
         try:
-            self.cursor.execute("INSERT OR REPLACE INTO downloaded_images (image_id) VALUES (?)", (image_id,))
+            self.cursor.execute(
+                "INSERT OR REPLACE INTO downloaded_images (image_id) VALUES (?)", (image_id,))
             self.conn.commit()
         except sqlite3.Error as e:
             logger.error(f"Error marking image as downloaded: {e}")
 
     def is_image_downloaded(self, image_id):
         try:
-            self.cursor.execute("SELECT * FROM downloaded_images WHERE image_id = ?", (image_id,))
+            self.cursor.execute(
+                "SELECT * FROM downloaded_images WHERE image_id = ?", (image_id,))
             return self.cursor.fetchone() is not None
         except sqlite3.Error as e:
             logger.error(f"Error checking downloaded image: {e}")
@@ -120,7 +126,8 @@ class DatabaseManager:
 
     def add_event_title(self, title):
         try:
-            self.cursor.execute("INSERT OR IGNORE INTO event_titles (title) VALUES (?)", (title,))
+            self.cursor.execute(
+                "INSERT OR IGNORE INTO event_titles (title) VALUES (?)", (title,))
             self.conn.commit()
         except sqlite3.Error as e:
             logger.error(f"Error adding event title: {e}")
@@ -145,14 +152,16 @@ class DatabaseManager:
 
     def mark_event_as_sent(self, event_id):
         try:
-            self.cursor.execute("INSERT OR REPLACE INTO sent_events (event_id) VALUES (?)", (event_id,))
+            self.cursor.execute(
+                "INSERT OR REPLACE INTO sent_events (event_id) VALUES (?)", (event_id,))
             self.conn.commit()
         except sqlite3.Error as e:
             logger.error(f"Error marking event as sent: {e}")
 
     def is_event_sent(self, event_id):
         try:
-            self.cursor.execute("SELECT * FROM sent_events WHERE event_id = ?", (event_id,))
+            self.cursor.execute(
+                "SELECT * FROM sent_events WHERE event_id = ?", (event_id,))
             return self.cursor.fetchone() is not None
         except sqlite3.Error as e:
             logger.error(f"Error checking sent event: {e}")

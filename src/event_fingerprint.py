@@ -4,6 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class EventFingerprint:
     def __init__(self, summary, date, location, description):
         self.summary = self._normalize_text(summary)
@@ -31,7 +32,8 @@ class EventFingerprint:
                         return datetime.strptime(date, "%Y-%m-%d").strftime("%Y-%m-%d")
                     except ValueError:
                         # Si todos fallan, registra un error y devuelve la fecha como está
-                        print(f"Warning: Unable to parse date {date}. Using as is.")
+                        print(
+                            f"Warning: Unable to parse date {date}. Using as is.")
                         return date
         elif isinstance(date, datetime):
             return date.strftime("%Y-%m-%d")

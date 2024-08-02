@@ -1,4 +1,18 @@
 FROM python:3.11-slim-bullseye
+
+# Establecer variables de entorno
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    POETRY_VERSION=1.5.1 \
+    POETRY_HOME="/opt/poetry" \
+    POETRY_VIRTUALENVS_IN_PROJECT=true \
+    POETRY_NO_INTERACTION=1 \
+    PYSETUP_PATH="/app" \
+    VENV_PATH="/app/.venv"
+
+# Agregar Poetry al PATH
+ENV PATH="$POETRY_HOME/bin:$VENV_PATH/bin:$PATH"
+
 WORKDIR /app
 
 # Instalar dependencias del sistema y herramientas de depuración
@@ -7,6 +21,7 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     libtesseract-dev \
     msmtp \
+    msmtp-mta \
     mailutils \
     sqlite3 \
     build-essential \
@@ -16,58 +31,64 @@ RUN apt-get update && apt-get install -y \
     gcc \
     procps \
     vim \
-    curl
+    curl \
+    logrotate \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Crear un usuario no root
+RUN useradd -m appuser
+
+# Configurar sudo para el usuario appuser
+RUN echo "appuser ALL=(ALL) NOPASSWD: /usr/sbin/logrotate, /usr/sbin/cron, /usr/bin/crontab" >> /etc/sudoers.d/appuser
 
 # Instalar Poetry
-RUN pip install poetry
-ENV PATH="/root/.local/bin:/usr/local/bin:$PATH"
+RUN curl -sSL https://install.python-poetry.org | python3 - --version ${POETRY_VERSION} && \
+    chmod a+x "${POETRY_HOME}/bin/poetry"
 
-# Copiar archivos de configuración y código fuente
+# Copiar solo los archivos de configuración primero
 COPY pyproject.toml poetry.lock ./
-COPY src/ ./src/
+
+# Instalar dependencias
+RUN poetry config virtualenvs.create true \
+    && poetry config virtualenvs.in-project true \
+    && poetry install --no-root --no-dev --no-interaction --no-ansi --verbose
+
+# Copiar el código fuente
+COPY src ./src
 COPY settings.yaml ./
 
-# Instalar dependencias del proyecto
-RUN poetry config virtualenvs.create false \
-    && poetry install --no-interaction --no-ansi
+# Configurar logs
+RUN mkdir -p /app/logs \
+    && touch /app/logs/app.log /app/logs/cron.log /app/logs/error.log \
+    && chown -R appuser:appuser /app \
+    && chmod -R 755 /app \
+    && chmod 1777 /app/logs
 
-# Configurar permisos y tareas cron
-RUN touch /var/log/cron.log && chmod 666 /var/log/cron.log
+# Copiar y configurar scripts
+COPY cron_script.sh check_errors.sh ./
+RUN chmod +x /app/cron_script.sh /app/check_errors.sh
 
-# Crear directorio de logs
-RUN mkdir -p /app/logs && chmod 755 /app/logs
+# Configurar logrotate
+COPY logrotate.conf /etc/logrotate.d/app-logs
+RUN chmod 644 /etc/logrotate.d/app-logs
 
-# Crear archivo de log para el cron job
-RUN touch /app/logs/cron_job.log && chmod 666 /app/logs/cron_job.log
-
-# Crear archivo de log para la aplicación
-RUN touch /app/logs/app.log && chmod 666 /app/logs/app.log
-
-# Crear script para cron
-COPY cron_script.sh /app/cron_script.sh
-RUN chmod +x /app/cron_script.sh
-
-# Configurar cron para usar el nuevo script
-RUN (crontab -l 2>/dev/null; echo "0 * * * * /app/cron_script.sh") | crontab -
-
-# Copiar y configurar script de verificación de errores
-COPY src/check_errors.sh /app/check_errors.sh
-RUN chmod +x /app/check_errors.sh
+# Configurar msmtp
+COPY msmtprc /etc/msmtprc
+RUN chmod 644 /etc/msmtprc
 
 # Definir volúmenes
-VOLUME ["/app/images", "/app/ics", "/app/download_tracker", "/app/plain_texts", "/app/sqlite_db", "/app/session"]
+VOLUME ["/app/images", "/app/ics", "/app/download_tracker", "/app/plain_texts", "/app/sqlite_db", "/app/session", "/app/logs"]
 
 # Crear script de inicio
-RUN echo '#!/bin/bash\n\
-touch /var/log/cron.log\n\
-echo "Container started at $(date)" >> /var/log/cron.log 2>&1\n\
-echo "PATH: $PATH" >> /var/log/cron.log 2>&1\n\
-POETRY_PATH=$(which poetry)\n\
-echo "Poetry path: $POETRY_PATH" >> /var/log/cron.log 2>&1\n\
-echo "Poetry version: $($POETRY_PATH --version)" >> /var/log/cron.log 2>&1\n\
-cron\n\
-tail -f /var/log/cron.log' > /start.sh
-RUN chmod +x /start.sh
+COPY start.sh ./
+RUN chmod +x /app/start.sh
+
+# Asegurarse de que Python y msmtp estén en el PATH
+ENV PATH="/home/appuser/.local/bin:/usr/sbin:/usr/bin:$PATH"
+
+# Cambiar al usuario no root
+USER appuser
 
 # Comando para iniciar cron y mantener el contenedor en ejecución
-CMD ["/start.sh"]
+CMD ["/app/start.sh"]

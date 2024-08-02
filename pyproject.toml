@@ -5,17 +5,15 @@ description = "Parse images and generates a calendar"
 authors = ["Your Name <you@example.com>"]
 license = "MIT"
 readme = "README.md"
-packages = [{include = "calendar_generator"}]
+packages = [
+    { include = "calendar_generator", from = "src" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.10"
 easyocr = "^1.4"
-transformers = "^4.20.1"
 ics = "^0.7"
-arrow = "^1.2.2"
-langchain = "^0.0.352"
 pytesseract = "^0.3.10"
-selenium = "^4.17.2"
 python-dateutil = "^2.9.0.post0"
 groq = "^0.5.0"
 google-cloud-documentai = "^2.29.0"
@@ -25,6 +23,10 @@ python-telegram-bot = "^21.3"
 icalendar = "^5.0.12"
 telethon = "^1.36.0"
 pillow = "^10.4.0"
+pyyaml = "^6.0.1"
+
+[tool.poetry.group.dev.dependencies]
+deptry = "^0.18.0"
 
 [build-system]
 requires = ["poetry-core"]

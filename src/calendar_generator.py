@@ -20,8 +20,10 @@ import pytz
 
 logger = logging.getLogger(__name__)
 
+
 class OCRReader:
-    SUPPORTED_FORMATS = ['.jpg', '.jpeg', '.png', '.bmp', '.pdf', '.tiff', '.tif', '.gif']
+    SUPPORTED_FORMATS = ['.jpg', '.jpeg', '.png',
+                         '.bmp', '.pdf', '.tiff', '.tif', '.gif']
 
     def __init__(self, service: str, google_config: Optional[Dict[str, str]] = None):
         self.service = service
@@ -30,39 +32,46 @@ class OCRReader:
             self.reader = easyocr.Reader(['es'])
         elif service == 'documentai':
             if not google_config:
-                raise ValueError("Google Document AI configuration is missing.")
+                raise ValueError(
+                    "Google Document AI configuration is missing.")
             self.project_id = google_config['project_id']
             self.location = google_config['location']
             self.processor_id = google_config['processor_id']
             self.credentials = service_account.Credentials.from_service_account_file(
                 google_config['credentials_path']
             )
-            self.client_options = ClientOptions(api_endpoint=f"{self.location}-documentai.googleapis.com")
+            self.client_options = ClientOptions(
+                api_endpoint=f"{self.location}-documentai.googleapis.com")
         else:
-            raise ValueError("Invalid OCR service. Choose either 'easyocr' or 'documentai'.")
+            raise ValueError(
+                "Invalid OCR service. Choose either 'easyocr' or 'documentai'.")
 
     def read(self, image_path: Path) -> Optional[str]:
         if image_path.suffix.lower() not in OCRReader.SUPPORTED_FORMATS:
             return None
-        
+
         try:
             if self.service == 'easyocr':
                 easy_ocr_result = self.reader.readtext(str(image_path))
                 easy_ocr_text = ' '.join([item[1] for item in easy_ocr_result])
-                tesseract_text = pytesseract.image_to_string(Image.open(image_path))
+                tesseract_text = pytesseract.image_to_string(
+                    Image.open(image_path))
                 combined_text = f"{easy_ocr_text} {tesseract_text}"
             elif self.service == 'documentai':
                 docai_client = documentai.DocumentProcessorServiceClient(
                     client_options=self.client_options,
                     credentials=self.credentials
                 )
-                resource_name = docai_client.processor_path(self.project_id, self.location, self.processor_id)
-                
+                resource_name = docai_client.processor_path(
+                    self.project_id, self.location, self.processor_id)
+
                 with open(image_path, "rb") as image:
                     image_content = image.read()
 
-                raw_document = documentai.RawDocument(content=image_content, mime_type=self.get_mime_type(image_path))
-                request = documentai.ProcessRequest(name=resource_name, raw_document=raw_document)
+                raw_document = documentai.RawDocument(
+                    content=image_content, mime_type=self.get_mime_type(image_path))
+                request = documentai.ProcessRequest(
+                    name=resource_name, raw_document=raw_document)
                 result = docai_client.process_document(request=request)
 
                 document_object = result.document
@@ -134,8 +143,10 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
 
     def validate_and_fix_json(self, json_data: str) -> dict:
         if not self.client:
-            logger.warning("El cliente Groq no está inicializado. No se puede validar el JSON.")
-            return json.loads(json_data)  # Devolver JSON parseado sin validación
+            logger.warning(
+                "El cliente Groq no está inicializado. No se puede validar el JSON.")
+            # Devolver JSON parseado sin validación
+            return json.loads(json_data)
 
         prompt = f"""
         Valida el siguiente JSON para un evento y corrige cualquier problema:
@@ -174,11 +185,14 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                 logger.error(f"Error al analizar el JSON corregido: {e}")
                 retries += 1
             except Exception as e:
-                logger.error(f"Error durante la validación del JSON: {e}", exc_info=True)
+                logger.error(
+                    f"Error durante la validación del JSON: {e}", exc_info=True)
                 retries += 1
 
-        logger.error("No se pudo validar y corregir el JSON después del número máximo de intentos.")
-        return json.loads(json_data)  # Devolver JSON original parseado si fallan todos los intentos
+        logger.error(
+            "No se pudo validar y corregir el JSON después del número máximo de intentos.")
+        # Devolver JSON original parseado si fallan todos los intentos
+        return json.loads(json_data)
 
     def extract_event_info(self, text: str):
         model_type = self.config['external_api']['service'] if self.config['external_api']['use'] else 'local_model'
@@ -188,69 +202,80 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
         while retries < self.max_retries:
             try:
                 if model_type == 'groq' and self.client:
-                    logger.debug(f"Enviando solicitud a la API de Groq con el prompt: {prompt}")
+                    logger.debug(
+                        f"Enviando solicitud a la API de Groq con el prompt: {prompt}")
                     chat_completion = self.client.chat.completions.create(
                         messages=[{"role": "user", "content": prompt}],
                         model=self.config['external_api']['model_name'],
                     )
-                    logger.debug(f"Respuesta recibida de la API de Groq: {chat_completion}")
+                    logger.debug(
+                        f"Respuesta recibida de la API de Groq: {chat_completion}")
                     content = chat_completion.choices[0].message.content
                 elif model_type == 'local_model' and self.config['local_model']['use']:
                     response = ollama.chat(
                         model=self.config['local_model']['model_name'],
                         messages=[{'role': 'user', 'content': prompt}]
                     )
-                    content = response['message']['content'].strip() if 'message' in response and 'content' in response['message'] else "{}"
+                    content = response['message']['content'].strip(
+                    ) if 'message' in response and 'content' in response['message'] else "{}"
 
                 logger.debug(f"Contenido sin procesar: {content}")
                 event_data = json.loads(content)
                 logger.debug(f"Contenido JSON parseado: {event_data}")
-                
+
                 # Validar y corregir JSON
                 event_data = self.validate_and_fix_json(json.dumps(event_data))
-                
+
                 # Si event_data es una lista, tomar el primer elemento
                 if isinstance(event_data, list) and len(event_data) > 0:
                     event_data = event_data[0]
-                
+
                 # Obtener la fecha actual en la zona horaria de Madrid
                 current_date = datetime.now(pytz.timezone('Europe/Madrid'))
-                
+
                 # Parsear fecha y hora de inicio
                 start_str = event_data.get('DTSTART')
                 if start_str:
                     if 'T' in start_str:  # Formato completo YYYY-MM-DDTHH:MM:SS
-                        start_date_time = datetime.fromisoformat(start_str).replace(tzinfo=pytz.timezone('Europe/Madrid'))
+                        start_date_time = datetime.fromisoformat(start_str).replace(
+                            tzinfo=pytz.timezone('Europe/Madrid'))
                     else:  # Solo hora HH:MM
-                        start_time = datetime.strptime(start_str, "%H:%M").time()
-                        start_date_time = current_date.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
+                        start_time = datetime.strptime(
+                            start_str, "%H:%M").time()
+                        start_date_time = current_date.replace(
+                            hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
                 else:
-                    logger.warning("No se proporcionó fecha/hora de inicio. Usando la fecha/hora actual.")
+                    logger.warning(
+                        "No se proporcionó fecha/hora de inicio. Usando la fecha/hora actual.")
                     start_date_time = current_date
 
                 # Ajustar a la próxima ocurrencia si es un evento recurrente
                 if 'RRULE' in event_data:
                     rrule = event_data['RRULE'].strip()
-                    start_date_time = get_next_valid_date(start_date_time, rrule)
-                
+                    start_date_time = get_next_valid_date(
+                        start_date_time, rrule)
+
                 event_data['DTSTART'] = start_date_time
 
                 # Parsear fecha y hora de finalización
                 end_str = event_data.get('DTEND')
                 if end_str:
                     if 'T' in end_str:  # Formato completo YYYY-MM-DDTHH:MM:SS
-                        end_date_time = datetime.fromisoformat(end_str).replace(tzinfo=pytz.timezone('Europe/Madrid'))
+                        end_date_time = datetime.fromisoformat(end_str).replace(
+                            tzinfo=pytz.timezone('Europe/Madrid'))
                     else:  # Solo hora HH:MM
                         end_time = datetime.strptime(end_str, "%H:%M").time()
-                        end_date_time = start_date_time.replace(hour=end_time.hour, minute=end_time.minute)
-                    
+                        end_date_time = start_date_time.replace(
+                            hour=end_time.hour, minute=end_time.minute)
+
                     # Si la hora de finalización es anterior a la de inicio, asumimos que es el día siguiente
                     if end_date_time <= start_date_time:
                         end_date_time += timedelta(days=1)
-                    
+
                     event_data['DTEND'] = end_date_time
                 else:
-                    logger.warning("No se proporcionó fecha/hora de finalización. El evento no tendrá hora de finalización.")
+                    logger.warning(
+                        "No se proporcionó fecha/hora de finalización. El evento no tendrá hora de finalización.")
 
                 logger.info(f"Datos del evento extraídos: {event_data}")
                 return event_data
@@ -260,16 +285,18 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                 logger.debug(f"Contenido sin procesar: {content}")
                 retries += 1
             except Exception as e:
-                logger.error(f"Error durante la extracción de información del evento: {e}", exc_info=True)
+                logger.error(
+                    f"Error durante la extracción de información del evento: {e}", exc_info=True)
                 retries += 1
 
-        logger.error("No se pudo extraer la información completa del evento después del número máximo de intentos.")
+        logger.error(
+            "No se pudo extraer la información completa del evento después del número máximo de intentos.")
         return {}
 
     def parse_datetime_or_time(self, date_str):
         if not date_str:
             return None
-        
+
         try:
             # Intentar analizar como datetime completo
             return datetime.fromisoformat(date_str).replace(tzinfo=pytz.timezone("Europe/Madrid"))
@@ -284,10 +311,12 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                 # Si ambos intentos de análisis fallan, devolver None
                 logger.error(f"No se pudo analizar la fecha/hora: {date_str}")
                 return None
+
+
 class ICSExporter:
     def export(self, entities: Dict[str, str], output_path: Path):
         logger.info(f"Attempting to export ICS with entities: {entities}")
-        
+
         cest = pytz.timezone("Europe/Madrid")
         current_date = datetime.now(cest)
 
@@ -298,17 +327,21 @@ class ICSExporter:
         if not start_date and rrule:
             start_date = self.get_next_occurrence(rrule, current_date)
             if not start_date:
-                logger.warning("No se pudo determinar la próxima ocurrencia del evento recurrente. Ignorando este evento.")
+                logger.warning(
+                    "No se pudo determinar la próxima ocurrencia del evento recurrente. Ignorando este evento.")
                 return
 
         if not start_date:
-            logger.warning("No se proporcionó fecha de inicio para la exportación ICS. Ignorando este evento.")
+            logger.warning(
+                "No se proporcionó fecha de inicio para la exportación ICS. Ignorando este evento.")
             return
 
         # Add this check
         if end_date and end_date <= start_date:
-            logger.warning(f"End date ({end_date}) is not after start date ({start_date}). Adjusting end date.")
-            end_date = start_date + timedelta(hours=1)  # Set end date to 1 hour after start date
+            logger.warning(
+                f"End date ({end_date}) is not after start date ({start_date}). Adjusting end date.")
+            # Set end date to 1 hour after start date
+            end_date = start_date + timedelta(hours=1)
 
         try:
             calendar = Calendar()
@@ -329,7 +362,8 @@ class ICSExporter:
 
                 # Add this check for recurring events
                 if end_date and end_date <= start_date:
-                    logger.warning(f"For recurring event, end date ({end_date}) is not after start date ({start_date}). Adjusting end date.")
+                    logger.warning(
+                        f"For recurring event, end date ({end_date}) is not after start date ({start_date}). Adjusting end date.")
                     end_date = start_date + timedelta(hours=1)
                     event.end = end_date
 
@@ -338,9 +372,10 @@ class ICSExporter:
             calendar_data = calendar.serialize()
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(calendar_data)
-            
+
             logger.info(f"Archivo ICS exportado exitosamente: {output_path}")
-            logger.info(f"Evento exportado: {event.name}, Inicio: {event.begin}, Fin: {event.end}, Recurrencia: {rrule}")
+            logger.info(
+                f"Evento exportado: {event.name}, Inicio: {event.begin}, Fin: {event.end}, Recurrencia: {rrule}")
         except Exception as e:
             logger.error(f"Error al exportar el ICS: {e}", exc_info=True)
 

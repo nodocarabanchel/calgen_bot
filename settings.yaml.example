@@ -1,48 +1,48 @@
 # Configuración de logging
 logging:
-  log_file: "logs/app.log"
+  log_file: "/app/logs/app.log"
   log_level: "INFO"
 
 # Configuración del servicio OCR (documentai o easyocr)
-ocr_service: 'documentai'  # Valores posibles: 'documentai', 'easyocr'
+ocr_service: 'documentai'
 
 # Configuración del modelo local
 local_model:
-  use: false  # Usar modelo local (true/false)
-  model_name: "local_model_name"  # Nombre del modelo local a utilizar
+  use: false
+  model_name: "local_model_name"
 
 # Configuración de API externa para extracción de información
 external_api:
-  use: true  # Usar API externa para extracción de información (true/false)
-  service: "external_service"  # Servicio de API externa (ej. 'groq')
-  model_name: "external_model_name"  # Nombre del modelo de la API externa
-  api_key: "api_key_value"  # Clave de API para autenticación
+  use: true
+  service: "external_service"
+  model_name: "external_model_name"
+  api_key: "api_key_value"
 
 # Configuración de Google Document AI (para OCR)
 google_document_ai:
-  project_id: "project_id_value"  # ID del proyecto de Google Cloud
-  location: "location_value"  # Ubicación del procesador de Document AI
-  processor_id: "processor_id_value"  # ID del procesador de Document AI
-  credentials_path: "credentials.json"  # Ruta al archivo de credenciales JSON
+  project_id: "project_id_value"
+  location: "location_value"
+  processor_id: "processor_id_value"
+  credentials_path: "credentials.json"
 
 # Configuración del bot de Telegram (actualizado para Telethon)
 telegram_bot:
-  use: true  # Usar bot de Telegram para notificaciones (true/false)
-  api_id: "your_api_id_here"  # API ID obtenido de https://my.telegram.org/apps
-  api_hash: "your_api_hash_here"  # API Hash obtenido de https://my.telegram.org/apps
-  phone: "your_phone_number_here"  # Número de teléfono asociado a tu cuenta de Telegram
-  session_file: "session/telethon_session"  # Nombre del archivo de sesión de Telethon
+  use: true
+  api_id: "your_api_id_here"
+  api_hash: "your_api_hash_here"
+  phone: "your_phone_number_here"
+  session_file: "session/telethon_session"
   offset_path: "offset.json"
   max_posters_per_day: 50
-  start_date: null  # Puede ser null si no se especifica. el formato es "YYYY-MM-DD"
+  start_date: null
   channel_ids:
     - -1001234567890
     - -1009876543210
 
 # Configuración de la API de Gancio
 gancio_api:
-  url: https://des.convoca.la/api/event"
-  token: null  # Clave de API opcional, puede ser null si no se requiere
+  url: "https://des.convoca.la/api/event"
+  token: null
 
 # Configuración de la API de OpenCage
 opencage_api:
@@ -66,3 +66,4 @@ directories:
   ics: "./ics"
   download_tracker: "./download_tracker"
   plain_texts: "./plain_texts"
+  logs: "./logs"
