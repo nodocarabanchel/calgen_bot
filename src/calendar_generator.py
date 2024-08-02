@@ -231,7 +231,7 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                         messages=[{"role": "user", "content": prompt}],
                         model=self.config["external_api"]["model_name"],
                     )
-                    logger.debug(
+                    logger.info(
                         f"Respuesta recibida de la API de Groq: {chat_completion}"
                     )
                     content = chat_completion.choices[0].message.content
@@ -246,9 +246,9 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                         else "{}"
                     )
 
-                logger.debug(f"Contenido sin procesar: {content}")
+                logger.info(f"Contenido sin procesar: {content}")
                 event_data = json.loads(content)
-                logger.debug(f"Contenido JSON parseado: {event_data}")
+                logger.info(f"Contenido JSON parseado: {event_data}")
 
                 # Validar y corregir JSON
                 event_data = self.validate_and_fix_json(json.dumps(event_data))
