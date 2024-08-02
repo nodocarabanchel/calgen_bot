@@ -14,7 +14,7 @@ echo "Running Python script..." >> $LOG_FILE
 
 # Activar el entorno virtual y ejecutar el script
 source $VENV_PATH/bin/activate
-python src/main.py
+poetry run python src/main.py
 
 echo "Python script finished at $(date)" >> $LOG_FILE
 echo "Running error check..." >> $LOG_FILE
