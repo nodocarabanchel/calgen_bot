@@ -9,6 +9,9 @@ POETRY_PATH=$(which poetry)
 echo "Poetry path: $POETRY_PATH" >> $LOG_FILE 2>&1
 echo "Running Python script..." >> $LOG_FILE 2>&1
 
+# Ejecutar logrotate para rotar los logs según la configuración
+logrotate /mnt/data/logrotate.conf >> $LOG_FILE 2>&1
+
 # Activar el entorno virtual y ejecutar el script
 source $VENV_PATH/bin/activate
 python src/main.py >> $LOG_FILE 2>&1
