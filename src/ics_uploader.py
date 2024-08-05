@@ -2,7 +2,7 @@ import imghdr
 import io
 import json
 import logging
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 from pathlib import Path
 from time import sleep
 

@@ -1,10 +1,8 @@
-import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
 from telethon import TelegramClient
-from telethon.tl.types import InputPeerChannel
 
 logger = logging.getLogger(__name__)
 

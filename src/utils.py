@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
-import pytz
 import requests
 import yaml
 from dateutil.rrule import rrulestr

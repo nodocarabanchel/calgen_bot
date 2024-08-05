@@ -1,12 +1,9 @@
 import json
 import logging
-import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
 
-import easyocr
-import pytesseract
 import pytz
 from dateutil.parser import parse
 from dateutil.rrule import rrulestr
@@ -15,7 +12,6 @@ from google.cloud import documentai_v1beta3 as documentai
 from google.oauth2 import service_account
 from groq import Groq
 from ics.grammar.parse import ContentLine
-from PIL import Image
 
 from ics import Calendar, Event
 from utils import get_next_valid_date, setup_logging
@@ -37,10 +33,7 @@ class OCRReader:
 
     def __init__(self, service: str, google_config: Optional[Dict[str, str]] = None):
         self.service = service
-        if service == "easyocr":
-            logger.info("Using EasyOCR for text extraction.")
-            self.reader = easyocr.Reader(["es"])
-        elif service == "documentai":
+        if service == "documentai":
             if not google_config:
                 raise ValueError("Google Document AI configuration is missing.")
             self.project_id = google_config["project_id"]
@@ -54,7 +47,7 @@ class OCRReader:
             )
         else:
             raise ValueError(
-                "Invalid OCR service. Choose either 'easyocr' or 'documentai'."
+                "Invalid OCR service. Only 'documentai' is supported."
             )
 
     def read(self, image_path: Path) -> Optional[str]:
@@ -62,12 +55,7 @@ class OCRReader:
             return None
 
         try:
-            if self.service == "easyocr":
-                easy_ocr_result = self.reader.readtext(str(image_path))
-                easy_ocr_text = " ".join([item[1] for item in easy_ocr_result])
-                tesseract_text = pytesseract.image_to_string(Image.open(image_path))
-                combined_text = f"{easy_ocr_text} {tesseract_text}"
-            elif self.service == "documentai":
+            if self.service == "documentai":
                 docai_client = documentai.DocumentProcessorServiceClient(
                     client_options=self.client_options, credentials=self.credentials
                 )

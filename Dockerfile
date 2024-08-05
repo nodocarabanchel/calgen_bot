@@ -1,6 +1,6 @@
 FROM python:3.11-slim-bullseye
 
-# Establecer variables de entorno
+# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     POETRY_VERSION=1.5.1 \
@@ -10,16 +10,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYSETUP_PATH="/app" \
     VENV_PATH="/app/.venv"
 
-# Agregar Poetry al PATH
+# Add Poetry to PATH
 ENV PATH="$POETRY_HOME/bin:$VENV_PATH/bin:$PATH"
 
 WORKDIR /app
 
-# Instalar dependencias del sistema y herramientas de depuración
+# Install system dependencies and debugging tools
 RUN apt-get update && apt-get install -y \
     cron \
-    tesseract-ocr \
-    libtesseract-dev \
     msmtp \
     msmtp-mta \
     mailutils \
@@ -36,41 +34,41 @@ RUN apt-get update && apt-get install -y \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Crear un usuario no root
+# Create a non-root user
 RUN useradd -m appuser
 
-# Configurar sudo para el usuario appuser
+# Configure sudo for appuser
 RUN echo "appuser ALL=(ALL) NOPASSWD: /usr/sbin/logrotate, /usr/sbin/cron, /usr/bin/crontab" >> /etc/sudoers.d/appuser
 
-# Instalar Poetry
+# Install Poetry
 RUN curl -sSL https://install.python-poetry.org | python3 - --version ${POETRY_VERSION} && \
     chmod a+x "${POETRY_HOME}/bin/poetry"
 
-# Copiar solo los archivos de configuración primero
-COPY pyproject.toml poetry.lock ./
+# Copy only configuration files first
+COPY --chown=appuser:appuser pyproject.toml poetry.lock ./
 
-# Instalar dependencias
+# Install dependencies
 RUN poetry config virtualenvs.create true \
     && poetry config virtualenvs.in-project true \
     && poetry install --no-root --no-dev --no-interaction --no-ansi --verbose
 
-# Copiar el código fuente
-COPY src ./src
-COPY settings.yaml ./
+# Copy the source code
+COPY --chown=appuser:appuser src ./src
+COPY --chown=appuser:appuser settings.yaml ./
 
-# Configurar logs
-RUN mkdir -p /app/logs \
+# Configure logs
+RUN mkdir -p /app/logs /app/images /app/ics /app/download_tracker /app/plain_texts /app/sqlite_db /app/session \
     && touch /app/logs/app.log /app/logs/cron.log /app/logs/error.log \
     && chown -R appuser:appuser /app \
     && chmod -R 755 /app \
     && chmod 1777 /app/logs
 
-# Copiar y configurar scripts
-COPY cron_script.sh check_errors.sh ./
+# Copy and configure scripts
+COPY --chown=appuser:appuser cron_script.sh check_errors.sh ./
 RUN chmod +x /app/cron_script.sh /app/check_errors.sh
 
-# Configurar logrotate
-COPY logrotate.conf /etc/logrotate.d/app-logs
+# Configure logrotate
+COPY --chown=root:root logrotate.conf /etc/logrotate.d/app-logs
 RUN chmod 644 /etc/logrotate.d/app-logs
 
 # Ensure logrotate state directory exists and has correct permissions
@@ -83,22 +81,19 @@ RUN touch /var/lib/logrotate/status && \
     chown appuser:appuser /var/lib/logrotate/status && \
     chmod 640 /var/lib/logrotate/status
 
-# Configurar msmtp
-COPY msmtprc /etc/msmtprc
+# Configure msmtp
+COPY --chown=root:root msmtprc /etc/msmtprc
 RUN chmod 644 /etc/msmtprc
 
-# Definir volúmenes
-VOLUME ["/app/images", "/app/ics", "/app/download_tracker", "/app/plain_texts", "/app/sqlite_db", "/app/session", "/app/logs"]
-
-# Crear script de inicio
-COPY start.sh ./
+# Create start script
+COPY --chown=appuser:appuser start.sh ./
 RUN chmod +x /app/start.sh
 
-# Asegurarse de que Python y msmtp estén en el PATH
+# Ensure Python and msmtp are in the PATH
 ENV PATH="/home/appuser/.local/bin:/usr/sbin:/usr/bin:$PATH"
 
-# Cambiar al usuario no root
+# Change to non-root user
 USER appuser
 
-# Comando para iniciar cron y mantener el contenedor en ejecución
+# Command to start cron and keep the container running
 CMD ["/app/start.sh"]
