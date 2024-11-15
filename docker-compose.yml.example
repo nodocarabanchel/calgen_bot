@@ -1,0 +1,26 @@
+version: '3.8'
+services:
+  calendar_generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: calendar_generator
+    volumes:
+      - ./images:/app/images
+      - ./ics:/app/ics
+      - ./download_tracker:/app/download_tracker
+      - ./plain_texts:/app/plain_texts
+      - ./sqlite_db:/app/sqlite_db
+      - ./settings.yaml:/app/settings.yaml
+      - ./key.json:/app/key.json
+      - ./logs:/app/logs
+      - ./session:/app/session
+    environment:
+      - CONFIG_FILE=/app/settings.yaml
+    restart: unless-stopped
+
+volumes:
+  sqlite_db:
+    name: calendar_generator_sqlite_db
+  telegram_session:
+    name: calendar_generator_telegram_session

@@ -1,0 +1,69 @@
+# Configuración de logging
+logging:
+  log_file: "/app/logs/app.log"
+  log_level: "INFO"
+
+# Configuración del servicio OCR (documentai o easyocr)
+ocr_service: 'documentai'
+
+# Configuración del modelo local
+local_model:
+  use: false
+  model_name: "local_model_name"
+
+# Configuración de API externa para extracción de información
+external_api:
+  use: true
+  service: "external_service"
+  model_name: "external_model_name"
+  api_key: "api_key_value"
+
+# Configuración de Google Document AI (para OCR)
+google_document_ai:
+  project_id: "project_id_value"
+  location: "location_value"
+  processor_id: "processor_id_value"
+  credentials_path: "credentials.json"
+
+# Configuración del bot de Telegram (actualizado para Telethon)
+telegram_bot:
+  use: true
+  api_id: "your_api_id_here"
+  api_hash: "your_api_hash_here"
+  phone: "your_phone_number_here"
+  session_file: "session/telethon_session"
+  offset_path: "offset.json"
+  max_posters_per_day: 50
+  start_date: null
+  channel_ids:
+    - -channel_ids
+    - -channel_ids
+
+# Configuración de la API de Gancio
+gancio_api:
+  url: "https://des.convoca.la/api/event"
+  token: null
+
+# Configuración de la API de OpenCage
+opencage_api:
+  key: "your_opencage_api_key_here"
+
+# Event tracker
+event_tracker_db_path: "sqlite_db/event_tracker.db"
+
+# Configuración de SMTP
+smtp:
+  host: ""
+  port: 587
+  user: ""
+  password: ""
+  from: ""
+  to: ""
+
+# Configuración de rutas de directorios
+directories:
+  images: "./images"
+  ics: "./ics"
+  download_tracker: "./download_tracker"
+  plain_texts: "./plain_texts"
+  logs: "./logs"
