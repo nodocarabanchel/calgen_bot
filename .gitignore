@@ -173,3 +173,6 @@ event_tracker.db
 
 # msmtprc
 msmtprc
+
+# .vscode
+.vscode/
