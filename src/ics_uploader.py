@@ -136,13 +136,20 @@ def compress_image(image_path, max_size_kb=500):
 
 
 def send_event(config, event_details, base_filename, image_path=None, max_retries=5):
-    api_url = config["gancio_api"]["url"].rstrip('"')
-    api_token = config["gancio_api"].get("token")
+    # Configuración del primer sitio
+    api_url_primary = config["gancio_api"]["url"].rstrip('"')
+    api_token_primary = config["gancio_api"].get("token")
+    
+    # Comprobación y configuración del segundo sitio (opcional)
+    api_url_secondary = config.get("secondary_api", {}).get("url", "").rstrip('"')
+    api_token_secondary = config.get("secondary_api", {}).get("token")
 
+    # Conversión de la fecha de inicio
     start_datetime = datetime.fromtimestamp(
         event_details["start_datetime"], tz=pytz.UTC
     )
 
+    # Construcción del diccionario de datos del evento
     data = {
         "title": event_details["title"].rstrip("`"),
         "place_name": event_details["place_name"],
@@ -183,21 +190,17 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
         for i, category in enumerate(categories):
             data[f"tags[{i}]"] = category
 
-    headers = {}
-    if api_token:
-        headers["Authorization"] = f"Bearer {api_token}"
+    # Cabeceras para cada sitio
+    headers_primary = {"Authorization": f"Bearer {api_token_primary}"} if api_token_primary else {}
+    headers_secondary = {"Authorization": f"Bearer {api_token_secondary}"} if api_token_secondary else {}
 
+    # Archivos para enviar (incluyendo la imagen si está disponible)
     files = {key: ("", value) for key, value in data.items()}
-
     if image_path and Path(image_path).exists():
         img_type = imghdr.what(image_path)
         if img_type in ["jpeg", "png", "gif"]:
             compressed_image = compress_image(image_path)
-            files["image"] = (
-                f"image.{img_type}",
-                compressed_image,
-                f"image/{img_type}",
-            )
+            files["image"] = (f"image.{img_type}", compressed_image, f"image/{img_type}")
             files["image_name"] = (None, "")
             files["image_focalpoint"] = (None, "0,0")
         else:
@@ -205,48 +208,94 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     else:
         logger.warning("Image path is not provided or does not exist.")
 
-    # Imprimir los datos que se van a enviar para depuración
-    logger.debug(f"Datos a enviar a la API: {json.dumps(data, indent=2)}")
+    # Intentar enviar el evento al primer sitio
+    for api_url, headers in [(api_url_primary, headers_primary)]:
+        retries = 0
+        total_wait_time = 0
+        max_wait_time = 300  # 5 minutos
 
-    retries = 0
-    total_wait_time = 0
-    max_wait_time = 300  # 5 minutes
-
-    while retries < max_retries and total_wait_time < max_wait_time:
-        try:
-            logger.info(
-                f"Attempting to send event: {event_details['title']} (Attempt {retries + 1}/{max_retries})"
-            )
-            response = requests.post(api_url, files=files, headers=headers)
-            logger.info(
-                f"Event sent. Status Code: {response.status_code}, Response: {response.text}"
-            )
-
-            if response.status_code == 200:
-                logger.info(f"Successfully sent event: {event_details['title']}")
-                return response
-            elif response.status_code == 404:
-                logger.error(f"404 Not Found: The endpoint {api_url} does not exist.")
-                break
-            elif response.status_code == 429:
-                wait_time = min(2**retries, max_wait_time - total_wait_time)
-                total_wait_time += wait_time
-                logger.warning(
-                    f"429 Too Many Requests: Retrying after backoff. Attempt {retries + 1} of {max_retries}. Waiting for {wait_time} seconds."
+        while retries < max_retries and total_wait_time < max_wait_time:
+            try:
+                logger.info(
+                    f"Attempting to send event: {event_details['title']} to {api_url} (Attempt {retries + 1}/{max_retries})"
                 )
-                retries += 1
-                sleep(wait_time)  # Exponential backoff
-            elif response.status_code == 500:
-                logger.error(f"500 Internal Server Error: {response.text}")
-                break
-            else:
-                logger.error(f"Error {response.status_code}: {response.text}")
-                break
-        except Exception as e:
-            logger.error(f"Failed to send event {event_details['title']}: {e}")
-            break
+                response = requests.post(api_url, files=files, headers=headers)
+                logger.info(
+                    f"Event sent to {api_url}. Status Code: {response.status_code}, Response: {response.text}"
+                )
 
-    logger.warning(
-        f"Failed to send event {event_details['title']} after {retries} attempts"
-    )
+                if response.status_code == 200:
+                    logger.info(f"Successfully sent event: {event_details['title']} to {api_url}")
+                    break  # Salir del bucle si el envío es exitoso
+                elif response.status_code == 404:
+                    logger.error(f"404 Not Found: The endpoint {api_url} does not exist.")
+                    break
+                elif response.status_code == 429:
+                    wait_time = min(2**retries, max_wait_time - total_wait_time)
+                    total_wait_time += wait_time
+                    logger.warning(
+                        f"429 Too Many Requests: Retrying after backoff. Attempt {retries + 1} of {max_retries}. Waiting for {wait_time} seconds."
+                    )
+                    retries += 1
+                    sleep(wait_time)  # Exponential backoff
+                elif response.status_code == 500:
+                    logger.error(f"500 Internal Server Error: {response.text}")
+                    break
+                else:
+                    logger.error(f"Error {response.status_code}: {response.text}")
+                    break
+            except Exception as e:
+                logger.error(f"Failed to send event {event_details['title']} to {api_url}: {e}")
+                break
+
+        logger.warning(
+            f"Failed to send event {event_details['title']} to {api_url} after {retries} attempts"
+        )
+
+    # Enviar al segundo sitio solo si está configurado
+    if api_url_secondary:
+        # Bucle para enviar al segundo sitio, igual que el primero
+        for api_url, headers in [(api_url_secondary, headers_secondary)]:
+            retries = 0
+            total_wait_time = 0
+            max_wait_time = 300  # 5 minutos
+
+            while retries < max_retries and total_wait_time < max_wait_time:
+                try:
+                    logger.info(
+                        f"Attempting to send event: {event_details['title']} to {api_url} (Attempt {retries + 1}/{max_retries})"
+                    )
+                    response = requests.post(api_url, files=files, headers=headers)
+                    logger.info(
+                        f"Event sent to {api_url}. Status Code: {response.status_code}, Response: {response.text}"
+                    )
+
+                    if response.status_code == 200:
+                        logger.info(f"Successfully sent event: {event_details['title']} to {api_url}")
+                        break  # Salir del bucle si el envío es exitoso
+                    elif response.status_code == 404:
+                        logger.error(f"404 Not Found: The endpoint {api_url} does not exist.")
+                        break
+                    elif response.status_code == 429:
+                        wait_time = min(2**retries, max_wait_time - total_wait_time)
+                        total_wait_time += wait_time
+                        logger.warning(
+                            f"429 Too Many Requests: Retrying after backoff. Attempt {retries + 1} of {max_retries}. Waiting for {wait_time} seconds."
+                        )
+                        retries += 1
+                        sleep(wait_time)  # Exponential backoff
+                    elif response.status_code == 500:
+                        logger.error(f"500 Internal Server Error: {response.text}")
+                        break
+                    else:
+                        logger.error(f"Error {response.status_code}: {response.text}")
+                        break
+                except Exception as e:
+                    logger.error(f"Failed to send event {event_details['title']} to {api_url}: {e}")
+                    break
+
+            logger.warning(
+                f"Failed to send event {event_details['title']} to {api_url} after {retries} attempts"
+            )
+
     return None

@@ -43,6 +43,10 @@ telegram_bot:
 gancio_api:
   url: "https://des.convoca.la/api/event"
   token: null
+  
+secondary_api:
+  url: "https://otro.destino/api/event"
+  token: "your_second_token_here"
 
 # Configuración de la API de OpenCage
 opencage_api:
