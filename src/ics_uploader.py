@@ -2,6 +2,7 @@ import imghdr
 import io
 import json
 import logging
+import os
 from datetime import date, datetime, time
 from pathlib import Path
 from time import sleep
@@ -22,7 +23,6 @@ from utils import (
 
 logger = logging.getLogger(__name__)
 
-
 def extract_event_details_from_ics(ics_file):
     events = []
     try:
@@ -32,11 +32,7 @@ def extract_event_details_from_ics(ics_file):
                 if component.name == "VEVENT":
                     try:
                         start = component.get("DTSTART").dt
-                        end = (
-                            component.get("DTEND").dt
-                            if component.get("DTEND")
-                            else None
-                        )
+                        end = component.get("DTEND").dt if component.get("DTEND") else None
 
                         # Convertir date a datetime si es necesario
                         if isinstance(start, date) and not isinstance(start, datetime):
@@ -65,44 +61,30 @@ def extract_event_details_from_ics(ics_file):
                                 end = madrid_tz.localize(end)
                             end = end.astimezone(pytz.UTC)
                             event_details["end_datetime"] = int(end.timestamp())
-                            event_details["multidate"] = (
-                                end.date() - start.date()
-                            ).days > 0
+                            event_details["multidate"] = (end.date() - start.date()).days > 0
                         else:
                             event_details["multidate"] = False
 
                         # Manejar eventos recurrentes
                         recurrence = component.get("RRULE")
                         if recurrence:
-                            rrule_string = (
-                                vRecur.from_ical(recurrence).to_ical().decode()
-                            )
-                            event_details["recurrent"] = parse_recurrence_rule(
-                                rrule_string
-                            )
+                            rrule_string = vRecur.from_ical(recurrence).to_ical().decode()
+                            event_details["recurrent"] = parse_recurrence_rule(rrule_string)
 
                             # Ajustar la fecha de inicio para eventos recurrentes
                             current_date = datetime.now(pytz.UTC)
                             adjusted_start = get_next_valid_date(start, rrule_string)
-                            next_occurrence = get_next_occurrence(
-                                rrule_string, adjusted_start, current_date
-                            )
+                            next_occurrence = get_next_occurrence(rrule_string, adjusted_start, current_date)
 
                             if next_occurrence:
-                                event_details["start_datetime"] = int(
-                                    next_occurrence.timestamp()
-                                )
+                                event_details["start_datetime"] = int(next_occurrence.timestamp())
                                 if end:
                                     duration = end - start
-                                    event_details["end_datetime"] = int(
-                                        (next_occurrence + duration).timestamp()
-                                    )
+                                    event_details["end_datetime"] = int((next_occurrence + duration).timestamp())
 
-                        # Add geolocation and categories if available
+                        # Añadir geolocalización y categorías si están disponibles
                         config = load_config()
-                        location = get_geolocation(
-                            config, event_details["place_address"]
-                        )
+                        location = get_geolocation(config, event_details["place_address"])
                         if location:
                             event_details["place_latitude"] = location["latitude"]
                             event_details["place_longitude"] = location["longitude"]
@@ -111,29 +93,21 @@ def extract_event_details_from_ics(ics_file):
                         logger.info(f"Event details extracted: {event_details}")
                         events.append(event_details)
                     except Exception as e:
-                        logger.error(
-                            f"Error processing event in ICS file: {e}", exc_info=True
-                        )
+                        logger.error(f"Error processing event in ICS file: {e}", exc_info=True)
         return events
     except Exception as e:
-        logger.error(
-            f"Failed to extract event details from ICS file: {e}", exc_info=True
-        )
+        logger.error(f"Failed to extract event details from ICS file: {e}", exc_info=True)
     return []
 
-
-def compress_image(image_path, max_size_kb=500):
-    img = Image.open(image_path)
-    img_byte_arr = io.BytesIO()
-    quality = 90
-    img.save(img_byte_arr, format="JPEG", quality=quality)
-    while img_byte_arr.tell() > max_size_kb * 1024 and quality > 20:
-        quality -= 10
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format="JPEG", quality=quality)
-    img_byte_arr.seek(0)
-    return img_byte_arr
-
+def compress_and_save_image(image_path, output_path, max_size_kb=500):
+    """Compresses an image and saves it in JPEG format."""
+    with Image.open(image_path) as img:
+        quality = 90
+        img.save(output_path, format="JPEG", quality=quality)
+        while os.path.getsize(output_path) > max_size_kb * 1024 and quality > 20:
+            quality -= 10
+            img.save(output_path, format="JPEG", quality=quality)
+    return output_path
 
 def send_event(config, event_details, base_filename, image_path=None, max_retries=5):
     # Configuración del primer sitio
@@ -144,158 +118,79 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     api_url_secondary = config.get("secondary_api", {}).get("url", "").rstrip('"')
     api_token_secondary = config.get("secondary_api", {}).get("token")
 
-    # Conversión de la fecha de inicio
-    start_datetime = datetime.fromtimestamp(
-        event_details["start_datetime"], tz=pytz.UTC
-    )
+    # Log para verificar URLs y tokens configurados
+    logger.debug(f"Primary API URL: {api_url_primary}, Token: {'Present' if api_token_primary else 'Missing'}")
+    logger.debug(f"Secondary API URL: {api_url_secondary}, Token: {'Present' if api_token_secondary else 'Missing'}")
 
-    # Construcción del diccionario de datos del evento
+    # Datos del evento
     data = {
         "title": event_details["title"].rstrip("`"),
         "place_name": event_details["place_name"],
         "place_address": event_details["place_address"].rstrip("`"),
-        "start_datetime": str(int(start_datetime.timestamp())),
+        "start_datetime": str(int(event_details["start_datetime"])),
         "multidate": "false",
     }
 
     if "end_datetime" in event_details:
-        end_datetime = datetime.fromtimestamp(
-            event_details["end_datetime"], tz=pytz.UTC
-        )
-        data["end_datetime"] = str(int(end_datetime.timestamp()))
-        data["multidate"] = (
-            "true"
-            if (end_datetime.date() - start_datetime.date()).days > 0
-            else "false"
-        )
-    else:
-        logger.info(
-            f"No end_datetime provided for event '{event_details['title']}'. Event will have no end time."
-        )
+        data["end_datetime"] = str(int(event_details["end_datetime"]))
+        data["multidate"] = "true" if (event_details["end_datetime"] - event_details["start_datetime"]) > 86400 else "false"
 
-    if "recurrent" in event_details and event_details["recurrent"]:
-        data["recurrent"] = json.dumps(event_details["recurrent"])
-    else:
-        data["recurrent"] = ""
-
-    if "place_latitude" in event_details and "place_longitude" in event_details:
-        data["place_latitude"] = str(event_details["place_latitude"])
-        data["place_longitude"] = str(event_details["place_longitude"])
-
-    if "description" in event_details and event_details["description"].strip():
-        data["description"] = event_details["description"].strip()
-
-    categories = event_details.get("categories", [])
-    if categories:
-        for i, category in enumerate(categories):
-            data[f"tags[{i}]"] = category
-
-    # Cabeceras para cada sitio
-    headers_primary = {"Authorization": f"Bearer {api_token_primary}"} if api_token_primary else {}
-    headers_secondary = {"Authorization": f"Bearer {api_token_secondary}"} if api_token_secondary else {}
+    # Ruta para guardar la imagen comprimida
+    compressed_image_path = "/tmp/compressed_image.jpg"
 
     # Archivos para enviar (incluyendo la imagen si está disponible)
-    files = {key: ("", value) for key, value in data.items()}
-    if image_path and Path(image_path).exists():
-        img_type = imghdr.what(image_path)
-        if img_type in ["jpeg", "png", "gif"]:
-            compressed_image = compress_image(image_path)
-            files["image"] = (f"image.{img_type}", compressed_image, f"image/{img_type}")
+    def prepare_files(image_path):
+        files = {key: ("", value) for key, value in data.items()}
+        if image_path and Path(image_path).exists():
+            compress_and_save_image(image_path, compressed_image_path)
+            files["image"] = ("image.jpg", open(compressed_image_path, "rb"), "image/jpeg")
             files["image_name"] = (None, "")
             files["image_focalpoint"] = (None, "0,0")
-        else:
-            logger.warning(f"Unsupported image type: {img_type}")
-    else:
-        logger.warning("Image path is not provided or does not exist.")
+        return files
 
-    # Intentar enviar el evento al primer sitio
-    for api_url, headers in [(api_url_primary, headers_primary)]:
+    # Función para hacer la solicitud a una API
+    def post_event(api_url, headers, files):
         retries = 0
         total_wait_time = 0
         max_wait_time = 300  # 5 minutos
+        success = False
 
         while retries < max_retries and total_wait_time < max_wait_time:
             try:
-                logger.info(
-                    f"Attempting to send event: {event_details['title']} to {api_url} (Attempt {retries + 1}/{max_retries})"
-                )
-                response = requests.post(api_url, files=files, headers=headers)
-                logger.info(
-                    f"Event sent to {api_url}. Status Code: {response.status_code}, Response: {response.text}"
-                )
-
+                logger.info(f"Attempting to send event to {api_url} (Attempt {retries + 1}/{max_retries})")
+                response = requests.post(api_url, files=files, headers=headers if headers else {})
                 if response.status_code == 200:
-                    logger.info(f"Successfully sent event: {event_details['title']} to {api_url}")
-                    break  # Salir del bucle si el envío es exitoso
-                elif response.status_code == 404:
-                    logger.error(f"404 Not Found: The endpoint {api_url} does not exist.")
+                    logger.info(f"Successfully sent event to {api_url}")
+                    success = True
                     break
                 elif response.status_code == 429:
                     wait_time = min(2**retries, max_wait_time - total_wait_time)
                     total_wait_time += wait_time
-                    logger.warning(
-                        f"429 Too Many Requests: Retrying after backoff. Attempt {retries + 1} of {max_retries}. Waiting for {wait_time} seconds."
-                    )
                     retries += 1
-                    sleep(wait_time)  # Exponential backoff
-                elif response.status_code == 500:
-                    logger.error(f"500 Internal Server Error: {response.text}")
-                    break
+                    sleep(wait_time)
                 else:
                     logger.error(f"Error {response.status_code}: {response.text}")
                     break
             except Exception as e:
-                logger.error(f"Failed to send event {event_details['title']} to {api_url}: {e}")
+                logger.error(f"Failed to send event to {api_url}: {e}")
                 break
 
-        logger.warning(
-            f"Failed to send event {event_details['title']} to {api_url} after {retries} attempts"
-        )
+        return success
 
-    # Enviar al segundo sitio solo si está configurado
+    # Enviar el evento al primer sitio
+    headers_primary = {"Authorization": f"Bearer {api_token_primary}"} if api_token_primary else None
+    primary_success = post_event(api_url_primary, headers_primary, prepare_files(image_path))
+
+    # Enviar al segundo sitio si está configurado
+    secondary_success = True
     if api_url_secondary:
-        # Bucle para enviar al segundo sitio, igual que el primero
-        for api_url, headers in [(api_url_secondary, headers_secondary)]:
-            retries = 0
-            total_wait_time = 0
-            max_wait_time = 300  # 5 minutos
+        headers_secondary = {"Authorization": f"Bearer {api_token_secondary}"} if api_token_secondary else None
+        secondary_success = post_event(api_url_secondary, headers_secondary, prepare_files(image_path))
 
-            while retries < max_retries and total_wait_time < max_wait_time:
-                try:
-                    logger.info(
-                        f"Attempting to send event: {event_details['title']} to {api_url} (Attempt {retries + 1}/{max_retries})"
-                    )
-                    response = requests.post(api_url, files=files, headers=headers)
-                    logger.info(
-                        f"Event sent to {api_url}. Status Code: {response.status_code}, Response: {response.text}"
-                    )
+    # Eliminar el archivo temporal comprimido
+    if os.path.exists(compressed_image_path):
+        os.remove(compressed_image_path)
+        logger.info(f"Archivo temporal {compressed_image_path} eliminado después de enviar los eventos.")
 
-                    if response.status_code == 200:
-                        logger.info(f"Successfully sent event: {event_details['title']} to {api_url}")
-                        break  # Salir del bucle si el envío es exitoso
-                    elif response.status_code == 404:
-                        logger.error(f"404 Not Found: The endpoint {api_url} does not exist.")
-                        break
-                    elif response.status_code == 429:
-                        wait_time = min(2**retries, max_wait_time - total_wait_time)
-                        total_wait_time += wait_time
-                        logger.warning(
-                            f"429 Too Many Requests: Retrying after backoff. Attempt {retries + 1} of {max_retries}. Waiting for {wait_time} seconds."
-                        )
-                        retries += 1
-                        sleep(wait_time)  # Exponential backoff
-                    elif response.status_code == 500:
-                        logger.error(f"500 Internal Server Error: {response.text}")
-                        break
-                    else:
-                        logger.error(f"Error {response.status_code}: {response.text}")
-                        break
-                except Exception as e:
-                    logger.error(f"Failed to send event {event_details['title']} to {api_url}: {e}")
-                    break
-
-            logger.warning(
-                f"Failed to send event {event_details['title']} to {api_url} after {retries} attempts"
-            )
-
-    return None
+    # Retornar el estado de éxito de ambas llamadas
+    return primary_success and secondary_success

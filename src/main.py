@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime,timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytz
@@ -199,13 +199,13 @@ async def main():
                 base_filename = ics_file.stem
                 image_file = images_folder / f"{base_filename}.jpg"
                 if image_file.exists():
-                    response = send_event(
+                    success = send_event(
                         config, event_details, base_filename, str(image_file)
                     )
                 else:
-                    response = send_event(config, event_details, base_filename)
+                    success = send_event(config, event_details, base_filename)
 
-                if response and response.status_code == 200:
+                if success:
                     db_manager.mark_event_as_sent(event_id)
                     logger.info(f"Event sent and marked as processed: {event_id}")
                     sent_events += 1
