@@ -24,23 +24,26 @@ def setup_logging(config, log_name=None):
     log_level_str = config.get("logging", {}).get("log_level", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
-    # Configuración básica
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.FileHandler(log_file), logging.StreamHandler(sys.stdout)],
-    )
+    # Obtén el logger y configura el nivel
+    logger = logging.getLogger(log_name or __name__)
+    logger.setLevel(log_level)
 
-    # Configurar el logger específico si se proporciona un nombre
-    if log_name:
-        logger = logging.getLogger(log_name)
-        logger.setLevel(log_level)
-    else:
-        logger = logging.getLogger()
+    # Agrega los handlers solo si el logger no tiene handlers previos
+    if not logger.hasHandlers():
+        file_handler = logging.FileHandler(log_file)
+        stream_handler = logging.StreamHandler(sys.stdout)
 
-    # Configurar otros loggers
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+        # Configuración del formato del log
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        file_handler.setFormatter(formatter)
+        stream_handler.setFormatter(formatter)
+
+        # Añadir handlers
+        logger.addHandler(file_handler)
+        logger.addHandler(stream_handler)
 
     logger.info(
         f"Logging setup complete for {log_name if log_name else 'root'}. Logger level: {logging.getLevelName(logger.level)}"
