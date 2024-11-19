@@ -15,7 +15,7 @@ echo "Running Python script..." >> $LOG_FILE
 /usr/sbin/logrotate /etc/logrotate.d/app-logs >> $LOG_FILE 2>> $ERROR_LOG_FILE
 
 # Activate the virtual environment and execute the script directly
-/app/.venv/bin/python src/main.py >> $LOG_FILE 2>> $ERROR_LOG_FILE
+/app/.venv/bin/python src/main.py
 
 echo "Python script finished at $(date)" >> $LOG_FILE
 echo "Running error check..." >> $LOG_FILE

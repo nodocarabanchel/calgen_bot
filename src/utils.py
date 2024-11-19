@@ -26,6 +26,8 @@ def setup_logging(config, log_name=None):
 
     # Obtén el logger y configura el nivel
     logger = logging.getLogger(log_name or __name__)
+    if logger.hasHandlers():  # Add this check
+        logger.handlers.clear()  # Clear existing handlers
     logger.setLevel(log_level)
 
     # Agrega los handlers solo si el logger no tiene handlers previos

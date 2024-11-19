@@ -39,8 +39,12 @@ check_and_rotate_logs() {
 check_and_rotate_logs
 
 # Configurar cron para logrotate y el script principal
-echo "0 * * * * /usr/sbin/logrotate /etc/logrotate.d/app-logs" | sudo crontab -
-echo "0 * * * * su - appuser -c '/app/cron_script.sh >> /app/logs/cron.log 2>&1'" | sudo crontab -
+if ! crontab -l 2>/dev/null | grep -q '/app/cron_script.sh'; then
+    (
+    echo "0 * * * * /usr/sbin/logrotate /etc/logrotate.d/app-logs"
+    echo "0 * * * * su - appuser -c '/app/cron_script.sh >> /app/logs/cron.log 2>&1'"
+    ) | sudo crontab -
+fi
 
 # Iniciar cron como root
 sudo cron
