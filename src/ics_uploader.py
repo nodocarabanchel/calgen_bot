@@ -113,12 +113,12 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     # Configuración del primer sitio
     api_url_primary = config["gancio_api"]["url"].rstrip('"')
     api_token_primary = config["gancio_api"].get("token")
-    
-    # Comprobación y configuración del segundo sitio (opcional)
+
+    # Configuración del segundo sitio (opcional)
     api_url_secondary = config.get("secondary_api", {}).get("url", "").rstrip('"')
     api_token_secondary = config.get("secondary_api", {}).get("token")
 
-    # Log para verificar URLs y tokens configurados
+    # Log de URLs y tokens configurados
     logger.debug(f"Primary API URL: {api_url_primary}, Token: {'Present' if api_token_primary else 'Missing'}")
     logger.debug(f"Secondary API URL: {api_url_secondary}, Token: {'Present' if api_token_secondary else 'Missing'}")
 
@@ -135,10 +135,10 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
         data["end_datetime"] = str(int(event_details["end_datetime"]))
         data["multidate"] = "true" if (event_details["end_datetime"] - event_details["start_datetime"]) > 86400 else "false"
 
-    # Ruta para guardar la imagen comprimida
+    # Ruta para la imagen comprimida
     compressed_image_path = "/tmp/compressed_image.jpg"
 
-    # Archivos para enviar (incluyendo la imagen si está disponible)
+    # Preparar archivos para enviar (incluyendo imagen si disponible)
     def prepare_files(image_path):
         files = {key: ("", value) for key, value in data.items()}
         if image_path and Path(image_path).exists():
@@ -151,11 +151,8 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     # Función para hacer la solicitud a una API
     def post_event(api_url, headers, files):
         retries = 0
-        total_wait_time = 0
-        max_wait_time = 300  # 5 minutos
         success = False
-
-        while retries < max_retries and total_wait_time < max_wait_time:
+        while retries < max_retries:
             try:
                 logger.info(f"Attempting to send event to {api_url} (Attempt {retries + 1}/{max_retries})")
                 response = requests.post(api_url, files=files, headers=headers if headers else {})
@@ -164,33 +161,31 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
                     success = True
                     break
                 elif response.status_code == 429:
-                    wait_time = min(2**retries, max_wait_time - total_wait_time)
-                    total_wait_time += wait_time
                     retries += 1
-                    sleep(wait_time)
+                    sleep(2**retries)
                 else:
                     logger.error(f"Error {response.status_code}: {response.text}")
                     break
             except Exception as e:
                 logger.error(f"Failed to send event to {api_url}: {e}")
                 break
-
         return success
 
-    # Enviar el evento al primer sitio
+    # Enviar al primer sitio
     headers_primary = {"Authorization": f"Bearer {api_token_primary}"} if api_token_primary else None
     primary_success = post_event(api_url_primary, headers_primary, prepare_files(image_path))
 
-    # Enviar al segundo sitio si está configurado
+    # Enviar al segundo sitio independientemente del resultado del primero
     secondary_success = True
     if api_url_secondary:
         headers_secondary = {"Authorization": f"Bearer {api_token_secondary}"} if api_token_secondary else None
         secondary_success = post_event(api_url_secondary, headers_secondary, prepare_files(image_path))
 
-    # Eliminar el archivo temporal comprimido
+    # Limpiar el archivo temporal comprimido
     if os.path.exists(compressed_image_path):
         os.remove(compressed_image_path)
         logger.info(f"Archivo temporal {compressed_image_path} eliminado después de enviar los eventos.")
 
-    # Retornar el estado de éxito de ambas llamadas
-    return primary_success and secondary_success
+    # Retornar el estado de éxito por separado para cada envío
+    return primary_success, secondary_success
+
