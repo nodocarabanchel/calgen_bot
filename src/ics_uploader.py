@@ -113,14 +113,24 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     # Configuración del primer sitio
     api_url_primary = config["gancio_api"]["url"].rstrip('"')
     api_token_primary = config["gancio_api"].get("token")
+    excluded_channels_primary = config["gancio_api"].get("excluded_channels", [])
 
     # Configuración del segundo sitio (opcional)
     api_url_secondary = config.get("secondary_api", {}).get("url", "").rstrip('"')
     api_token_secondary = config.get("secondary_api", {}).get("token")
+    excluded_channels_secondary = config.get("secondary_api", {}).get("excluded_channels", [])
 
     # Log de URLs y tokens configurados
     logger.debug(f"Primary API URL: {api_url_primary}, Token: {'Present' if api_token_primary else 'Missing'}")
     logger.debug(f"Secondary API URL: {api_url_secondary}, Token: {'Present' if api_token_secondary else 'Missing'}")
+
+    # Obtener el ID del canal del nombre del archivo base
+    channel_id = None
+    try:
+        # Asumimos que el base_filename contiene el ID del canal como prefijo
+        channel_id = int(base_filename.split('_')[0])
+    except (ValueError, IndexError):
+        logger.warning(f"No se pudo extraer el ID del canal del archivo: {base_filename}")
 
     # Datos del evento
     data = {
@@ -171,15 +181,21 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
                 break
         return success
 
-    # Enviar al primer sitio
-    headers_primary = {"Authorization": f"Bearer {api_token_primary}"} if api_token_primary else None
-    primary_success = post_event(api_url_primary, headers_primary, prepare_files(image_path))
+    # Enviar al primer sitio si el canal no está excluido
+    primary_success = True
+    if channel_id not in excluded_channels_primary:
+        headers_primary = {"Authorization": f"Bearer {api_token_primary}"} if api_token_primary else None
+        primary_success = post_event(api_url_primary, headers_primary, prepare_files(image_path))
+    else:
+        logger.info(f"Canal {channel_id} excluido de la API primaria. No se enviará el evento.")
 
-    # Enviar al segundo sitio independientemente del resultado del primero
+    # Enviar al segundo sitio si el canal no está excluido
     secondary_success = True
-    if api_url_secondary:
+    if api_url_secondary and channel_id not in excluded_channels_secondary:
         headers_secondary = {"Authorization": f"Bearer {api_token_secondary}"} if api_token_secondary else None
         secondary_success = post_event(api_url_secondary, headers_secondary, prepare_files(image_path))
+    else:
+        logger.info(f"Canal {channel_id} excluido de la API secundaria o API secundaria no configurada.")
 
     # Limpiar el archivo temporal comprimido
     if os.path.exists(compressed_image_path):
