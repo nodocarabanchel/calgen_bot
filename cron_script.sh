@@ -12,7 +12,9 @@ export PATH="/app/.venv/bin:/usr/local/bin:/usr/sbin:/usr/bin:$PATH"
 echo "Running Python script..." >> $LOG_FILE
 
 # Execute logrotate to rotate logs according to the configuration
-/usr/sbin/logrotate /etc/logrotate.d/app-logs >> $LOG_FILE 2>> $ERROR_LOG_FILE
+if ! flock -n /var/lib/logrotate/status.lock /usr/sbin/logrotate /etc/logrotate.d/app-logs; then
+    echo "Logrotate is already running, skipping..." >> $LOG_FILE
+fi
 
 # Activate the virtual environment and execute the script directly
 /app/.venv/bin/python src/main.py
