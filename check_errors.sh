@@ -5,6 +5,12 @@ LOG_DIR="/app/logs/app"
 SUPERVISOR_LOG_DIR="/app/logs/supervisor"
 REPORTED_ERRORS_FILE="${LOG_DIR}/reported_errors.txt"
 
+# Crear el archivo reported_errors.txt si no existe
+if [ ! -f "$REPORTED_ERRORS_FILE" ]; then
+    touch "$REPORTED_ERRORS_FILE"
+    chmod 666 "$REPORTED_ERRORS_FILE"
+fi
+
 exec 200>"${LOCK_FILE}"
 if ! flock -n 200; then
     exit 1
