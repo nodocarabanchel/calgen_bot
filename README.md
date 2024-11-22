@@ -1,43 +1,54 @@
 # CalGen Bot Project
 
-Este proyecto es un bot de Telegram diseñado para descargar imágenes de un canales específicos, procesarlas utilizando OCR y generar archivos ICS con la información extraída. También se configura un sistema de cron jobs para automatizar estas tareas y enviar correos electrónicos en caso de errores.
+Bot de Telegram que descarga imágenes de canales específicos, procesa OCR y genera archivos ICS. Incluye automatización y monitoreo.
 
 ## Características
 
-- Descarga de imágenes desde un canal de Telegram.
-- Procesamiento de imágenes utilizando OCR.
-- Generación de archivos ICS con la información extraída.
-- Tareas automatizadas mediante cron jobs.
-- Notificación por correo electrónico en caso de errores.
+- Descarga automática de imágenes de canales Telegram
+- OCR y extracción de información de eventos
+- Generación de archivos ICS
+- Monitoreo y notificaciones por email
+- Rotación automática de logs
 
-## Requisitos Previos
+## Requisitos
 
-- Docker y Docker Compose instalados.
-- Cuenta de correo electrónico para usar como servidor SMTP.
+- Docker y Docker Compose
+- Cuenta SMTP para notificaciones
 
-## Configuración
+## Instalación
 
-### Archivo `settings.yaml`
+1. Configura los archivos necesarios:
+```bash
+cp settings.yaml.example settings.yaml
+# Edita settings.yaml con tus configuraciones
+```
 
-Configura el archivo `settings.yaml` en la raíz del proyecto con los detalles de tu bot de Telegram y el servicio de OCR.
+2. Inicia el servicio:
+```bash
+docker-compose up -d --build
+```
 
+## Monitoreo
 
-1. **Construir y ejecutar los contenedores:**
+Verificar logs:
+```bash
+# Logs de supervisor
+docker exec calendar_generator cat /app/logs/supervisor/supervisord.log
 
-   ```sh
-   docker-compose up -d --build
-   ```
+# Logs de aplicación
+docker exec calendar_generator cat /app/logs/app/app.log
 
-2. **Verificar los logs:**
+# Estado de procesos
+docker exec calendar_generator supervisorctl status
+```
 
-   ```sh
-   docker-compose logs -f calgen_bot
-   ```
+## Funcionamiento
 
-## Contribución
-
-Si deseas contribuir a este proyecto, por favor crea un fork del repositorio y envía un pull request con tus cambios.
+- Ejecución automática cada hora
+- Rotación diaria de logs (7 días de histórico)
+- Notificaciones por email en caso de errores
+- Los directorios y estructura se crean automáticamente
 
 ## Licencia
 
-Este proyecto está bajo la licencia MIT. Consulta el archivo `LICENSE` para más detalles.
+MIT License
