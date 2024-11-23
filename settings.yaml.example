@@ -1,73 +1,74 @@
 # Configuración de logging
 logging:
-  log_file: "/app/logs/app.log"
-  log_level: "INFO"
+  log_file: "/app/logs/app.log"  # Ruta del archivo de log de la aplicación
+  log_level: "INFO"             # Nivel de logging: DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 # Configuración del servicio OCR (documentai o easyocr)
-ocr_service: 'documentai'
+ocr_service: 'documentai'       # Opciones: 'documentai', 'easyocr'
 
 # Configuración del modelo local
 local_model:
-  use: false
-  model_name: "local_model_name"
+  use: false                    # Usar modelo local (true/false)
+  model_name: "local_model_name"  # Nombre del modelo local
 
 # Configuración de API externa para extracción de información
 external_api:
-  use: true
-  service: "external_service"
-  model_name: "external_model_name"
-  api_key: "api_key_value"
+  use: true                     # Usar API externa para extracción de información (true/false)
+  service: "external_service"   # Servicio de API externa (por ejemplo, 'groq')
+  model_name: "external_model_name"  # Nombre del modelo de la API externa
+  api_key: "api_key_value"      # Clave API para autenticación (proporcionada por el servicio)
 
 # Configuración de Google Document AI (para OCR)
 google_document_ai:
-  project_id: "project_id_value"
-  location: "location_value"
-  processor_id: "processor_id_value"
-  credentials_path: "credentials.json"
+  project_id: "project_id_value"    # ID del proyecto de Google Cloud
+  location: "location_value"        # Ubicación del procesador (ejemplo: 'us', 'eu')
+  processor_id: "processor_id_value"  # ID del procesador configurado en Google Cloud
+  credentials_path: "credentials.json"  # Ruta al archivo de credenciales JSON
 
 # Configuración del bot de Telegram (actualizado para Telethon)
 telegram_bot:
-  use: true
-  api_id: "your_api_id_here"
-  api_hash: "your_api_hash_here"
-  phone: "your_phone_number_here"
-  session_file: "session/telethon_session"
-  offset_path: "offset.json"
-  max_posters_per_day: 50
-  start_date: null
-  channel_ids:
-    - -channel_ids
-    - -channel_ids
+  use: true                     # Activar el bot de Telegram (true/false)
+  api_id: "your_api_id_here"    # API ID obtenido de https://my.telegram.org/apps
+  api_hash: "your_api_hash_here"  # API Hash obtenido de https://my.telegram.org/apps
+  phone: "your_phone_number_here"  # Número de teléfono asociado a tu cuenta de Telegram
+  session_file: "session/telethon_session"  # Archivo de sesión de Telethon
+  offset_path: "offset.json"    # Archivo para rastrear la última descarga
+  max_posters_per_day: 50       # Límite diario de publicaciones por canal
+  start_date: null              # Fecha de inicio de descarga (formato "YYYY-MM-DD"). Null para usar últimas 24h
+  channel_ids:                  # Lista de IDs de canales o grupos de Telegram
+    - -1001234567890            # Reemplazar con los IDs reales
+    - -1009876543210            # Reemplazar con los IDs reales
 
 # Configuración de la API de Gancio
 gancio_api:
-  url: "https://des.convoca.la/api/event"
-  token: null
-  
+  url: "https://your.gancio.api.url"  # URL de la API de Gancio
+  token: null                     # Token de API opcional (null si no es necesario)
+
+# Configuración de una API secundaria (opcional)
 secondary_api:
-  url: "https://otro.destino/api/event"
-  token: "your_second_token_here"
+  url: "https://another.api.url"  # URL de la API secundaria (opcional)
+  token: "your_second_token_here" # Token de la API secundaria (opcional)
 
-# Configuración de la API de OpenCage
+# Configuración de la API de OpenCage (para geolocalización)
 opencage_api:
-  key: "your_opencage_api_key_here"
+  key: "your_opencage_api_key_here"  # Clave API de OpenCage (obtenida en https://opencagedata.com/)
 
-# Event tracker
+# Rutas de la base de datos para el rastreador de eventos
 event_tracker_db_path: "sqlite_db/event_tracker.db"
 
-# Configuración de SMTP
+# Configuración de SMTP (para notificaciones por correo)
 smtp:
-  host: ""
-  port: 587
-  user: ""
-  password: ""
-  from: ""
-  to: ""
+  host: "your_smtp_host_here"    # Host SMTP (ejemplo: 'smtp.example.com')
+  port: 587                      # Puerto SMTP (587 para TLS, 465 para SSL)
+  user: "your_email_here"        # Usuario o email para autenticación SMTP
+  password: "your_password_here" # Contraseña para autenticación SMTP
+  from: "your_email_here"        # Dirección de correo remitente
+  to: "recipient_email_here"     # Dirección de correo destinatario
 
 # Configuración de rutas de directorios
 directories:
-  images: "./images"
-  ics: "./ics"
-  download_tracker: "./download_tracker"
-  plain_texts: "./plain_texts"
-  logs: "./logs"
+  images: "./images"             # Directorio donde se guardan las imágenes descargadas
+  ics: "./ics"                   # Directorio donde se guardan los archivos ICS generados
+  download_tracker: "./download_tracker"  # Directorio para rastrear descargas
+  plain_texts: "./plain_texts"   # Directorio para guardar textos extraídos
+  logs: "./logs"                 # Directorio para guardar los logs

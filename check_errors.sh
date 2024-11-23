@@ -1,19 +1,23 @@
 #!/bin/bash
 
-LOCK_FILE="/var/lock/calendar-generator/error_check.lock"
+LOCKFILE="/var/lock/calendar-generator/error_check.lock"
+
+exec 200>"$LOCKFILE"
+if ! flock -n 200; then
+    echo "$(date) - Another instance of check_errors.sh is running" >> /app/logs/app/cron.log
+    exit 1
+fi
+
+trap 'rm -f "$LOCKFILE"; exit' INT TERM EXIT
+
+# Aquí va el contenido original del script
 LOG_DIR="/app/logs/app"
 SUPERVISOR_LOG_DIR="/app/logs/supervisor"
 REPORTED_ERRORS_FILE="${LOG_DIR}/reported_errors.txt"
 
-# Crear el archivo reported_errors.txt si no existe
 if [ ! -f "$REPORTED_ERRORS_FILE" ]; then
     touch "$REPORTED_ERRORS_FILE"
     chmod 666 "$REPORTED_ERRORS_FILE"
-fi
-
-exec 200>"${LOCK_FILE}"
-if ! flock -n 200; then
-    exit 1
 fi
 
 check_logs() {
@@ -41,4 +45,6 @@ check_logs "${SUPERVISOR_LOG_DIR}/app.err.log"
 # Limpia errores reportados antiguos
 find "$REPORTED_ERRORS_FILE" -mtime +7 -delete
 
+rm -f "$LOCKFILE"
+trap - INT TERM EXIT
 exit 0

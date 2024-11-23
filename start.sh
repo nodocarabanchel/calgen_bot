@@ -6,6 +6,9 @@ export PATH="$VIRTUAL_ENV/bin:$PATH"
 
 source $VIRTUAL_ENV/bin/activate
 
+# Eliminar archivos de bloqueo huérfanos al inicio
+rm -f /var/lock/calendar-generator/*.lock
+
 # Función para leer configuración
 get_config_value() {
     local key=$1
@@ -26,9 +29,9 @@ echo "Configuración SMTP cargada." >> /app/logs/app/app.log
 if ! crontab -l 2>/dev/null | grep -q '/app/cron_script.sh'; then
     (
     echo "0 * * * * /usr/sbin/logrotate /etc/logrotate.d/app-logs"
-    echo "0 * * * * flock -n /var/lock/calendar-generator/cron.lock /app/cron_script.sh >> /app/logs/app/cron.log 2>&1"
-    echo "5 * * * * /app/check_errors.sh"
-    ) | sudo crontab -
+    echo "0 * * * * sudo -u appuser flock -n /var/lock/calendar-generator/cron.lock /app/cron_script.sh >> /app/logs/app/cron.log 2>&1"
+    echo "5 * * * * sudo -u appuser flock -n /var/lock/calendar-generator/error_check.lock /app/check_errors.sh >> /app/logs/app/cron.log 2>&1"
+    ) | sudo -u appuser crontab -
 fi
 
 # Crear archivos de log necesarios

@@ -29,6 +29,7 @@ RUN mkdir -p /app/logs/supervisor \
             /app/session \
             /app/sqlite_db \
             /var/lock/calendar-generator \
+            /var/log/cron \
     && touch /app/logs/app/app.log \
             /app/logs/app/cron.log \
             /app/logs/app/error.log \
@@ -40,7 +41,8 @@ RUN mkdir -p /app/logs/supervisor \
     && chown -R appuser:appuser /app \
     && chmod -R 755 /app \
     && chmod 666 /app/logs/app/*.log /app/logs/supervisor/*.log \
-    && chmod 777 /var/lock/calendar-generator
+    && chmod 777 /var/lock/calendar-generator \
+    && chmod 777 /var/log/cron
 
 # Instalar Poetry
 RUN curl -sSL https://install.python-poetry.org | python3 - --version ${POETRY_VERSION} && \
@@ -63,6 +65,6 @@ RUN chmod +x *.sh && \
     touch /var/lib/logrotate/status && \
     chown appuser:appuser /var/lib/logrotate/status && \
     chmod 640 /var/lib/logrotate/status && \
-    echo "appuser ALL=(ALL) NOPASSWD: /usr/sbin/cron, /usr/bin/crontab" >> /etc/sudoers.d/appuser
+    echo "appuser ALL=(ALL) NOPASSWD: /usr/sbin/cron, /usr/bin/crontab, /usr/bin/flock" >> /etc/sudoers.d/appuser
 
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
