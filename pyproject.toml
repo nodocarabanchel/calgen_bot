@@ -3,11 +3,7 @@ name = "calendar-generator"
 version = "0.1.0"
 description = "Parse images and generates a calendar"
 authors = ["Your Name <you@example.com>"]
-license = "MIT"
 readme = "README.md"
-packages = [
-    { include = "calendar_generator", from = "src" }
-]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -16,14 +12,15 @@ python-dateutil = "^2.9.0.post0"
 groq = "^0.5.0"
 google-cloud-documentai = "^2.29.0"
 google-cloud-storage = "^2.17.0"
-google-cloud-documentai-toolbox = "^0.13.3a0"
 python-telegram-bot = "^21.3"
 icalendar = "^5.0.12"
 telethon = "^1.36.0"
 pyyaml = "^6.0.1"
-
-[tool.poetry.group.dev.dependencies]
-deptry = "^0.18.0"
+docker = "^7.0.0"
+schedule = "^1.2.1"
+click = "^8.1.7"
+numpy = "^1.24.0"
+pillow = "^10.0.0"  # También agregamos Pillow ya que probablemente lo necesitaremos para el procesamiento de imágenes
 
 [build-system]
 requires = ["poetry-core"]

@@ -1,15 +1,29 @@
 # Directorios de datos
 logs/*
+!logs/app/
+!logs/supervisor/
+logs/app/*
+logs/supervisor/*
 !logs/app/.gitkeep
 !logs/supervisor/.gitkeep
+
 ics/*
 !ics/.gitkeep
+
 images/*
 !images/.gitkeep
+
 session/*
 !session/.gitkeep
+
 sqlite_db/*
 !sqlite_db/.gitkeep
+
+plain_texts/*
+!plain_texts/.gitkeep
+
+download_tracker/*
+!download_tracker/.gitkeep
 
 # Archivos de configuración
 settings.yaml
@@ -40,3 +54,13 @@ ENV/
 *.gz
 *.tmp
 *~
+
+# Archivos de datos
+*.txt
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.ics
+*.session
+*.session-journal

@@ -15,16 +15,11 @@ WORKDIR /app
 
 # Instalar dependencias del sistema
 RUN apt-get update && apt-get install -y \
-    python3-dev \
+    docker.io \
+    curl \
     gcc \
     g++ \
     make \
-    sqlite3 \
-    msmtp \
-    msmtp-mta \
-    mailutils \
-    logrotate \
-    curl \
     libffi-dev \
     gfortran \
     libblas-dev \
@@ -47,30 +42,20 @@ RUN curl -sSL https://install.python-poetry.org | python3 - --version ${POETRY_V
     mkdir -p $POETRY_CACHE_DIR && \
     chown -R appuser:appgroup $POETRY_CACHE_DIR
 
-# Crear estructura de directorios y establecer permisos
-RUN mkdir -p /app/images \
-            /app/ics \
-            /app/download_tracker \
-            /app/plain_texts \
-            /app/sqlite_db \
-            /app/session \
-            /app/logs/app \
-            /app/logs/supervisor \
+# Crear estructura de directorios
+RUN mkdir -p /app/logs \
             /app/.venv \
     && chown -R appuser:appgroup /app \
     && chmod -R 777 /app
 
-# Cambiar al usuario no privilegiado
-USER appuser
-
 # Configurar Poetry
+USER appuser
 RUN mkdir -p /home/appuser/.config/pypoetry && \
     poetry config cache-dir $POETRY_CACHE_DIR
 
 # Copiar archivos del proyecto
 COPY --chown=appuser:appgroup pyproject.toml poetry.lock ./
-COPY --chown=appuser:appgroup src ./src
-COPY --chown=appuser:appgroup config/logrotate.conf /etc/logrotate.d/app-logs
+COPY --chown=appuser:appgroup src/manager.py .
 
 # Instalar dependencias con Poetry
 RUN poetry install --only main --no-root --no-interaction
@@ -80,21 +65,18 @@ USER root
 RUN echo '#!/bin/bash\n\
 umask 0000\n\
 \n\
-# Asegurar permisos de directorios\n\
-chmod -R 777 /app/images\n\
-chmod -R 777 /app/ics\n\
-chmod -R 777 /app/download_tracker\n\
-chmod -R 777 /app/plain_texts\n\
-chmod -R 777 /app/sqlite_db\n\
+# Asegurar permisos del socket de Docker\n\
+if [ -S /var/run/docker.sock ]; then\n\
+    DOCKER_GID=$(stat -c "%g" /var/run/docker.sock)\n\
+    groupadd -g ${DOCKER_GID} docker-external || true\n\
+    usermod -aG docker-external appuser\n\
+    chmod 666 /var/run/docker.sock\n\
+fi\n\
+\n\
+# Asegurar permisos de logs\n\
 chmod -R 777 /app/logs\n\
-chmod -R 777 /app/session\n\
 \n\
-# Asegurar permisos de archivos de configuración\n\
-chmod 666 /app/key.json\n\
-chmod 666 /app/settings.yaml\n\
-\n\
-# Ejecutar como usuario appuser\n\
-exec su -s /bin/bash -c "poetry run python src/main.py" appuser\n\
+exec su -s /bin/bash -c "poetry run python manager.py" appuser\n\
 ' > /app/start.sh && \
     chmod +x /app/start.sh
 
