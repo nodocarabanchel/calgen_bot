@@ -45,8 +45,6 @@ def setup_logging(config, log_name=None):
     return logger
 
 
-
-
 def get_image_hash(image_path, hash_size=8):
     with Image.open(image_path) as img:
         img = img.convert("L").resize((hash_size + 1, hash_size), Image.LANCZOS)

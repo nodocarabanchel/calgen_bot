@@ -206,7 +206,17 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
         # Devolver JSON original parseado si fallan todos los intentos
         return json.loads(json_data)
 
-    def extract_event_info(self, text: str):
+    def extract_event_info(self, text: str, metadata: dict = None):
+        """
+        Extrae la información del evento del texto proporcionado y agrega metadatos si están disponibles.
+        
+        Args:
+            text (str): El texto del que extraer la información del evento
+            metadata (dict, optional): Diccionario con metadatos adicionales (canal, fuente, etc.)
+        
+        Returns:
+            list: Lista de diccionarios con la información de los eventos
+        """
         model_type = (
             self.config["external_api"]["service"]
             if self.config["external_api"]["use"]
@@ -239,6 +249,11 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
 
                 # Validar y corregir JSON
                 validated_event_data_list = self.validate_and_fix_json(json.dumps(event_data_list))
+
+                    # Añadimos la descripción del mensaje de Telegram directamente
+                for event_data in validated_event_data_list:
+                    if metadata and metadata.get("text"):
+                        event_data["DESCRIPTION"] = metadata["text"]  # Texto original del mensaje de Telegram
 
                 # If the validated JSON is a single object, convert it to a list
                 if isinstance(validated_event_data_list, dict):
@@ -294,6 +309,13 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                         logger.warning(
                             "No se proporcionó fecha/hora de finalización. El evento no tendrá hora de finalización."
                         )
+
+                    # Agregar tags y metadatos si están disponibles
+                    if metadata:
+                        event_data["tags"] = [
+                            metadata.get("channel_name", "Canal Desconocido"),
+                            metadata.get("source", "Fuente Desconocida")
+                        ]
 
                 logger.info(f"Datos del evento extraídos: {validated_event_data_list}")
                 return validated_event_data_list

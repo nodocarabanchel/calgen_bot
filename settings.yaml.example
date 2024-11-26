@@ -36,8 +36,8 @@ telegram_bot:
   max_posters_per_day: 50       # Límite diario de publicaciones por canal
   start_date: null              # Fecha de inicio de descarga (formato "YYYY-MM-DD"). Null para usar últimas 24h
   channel_ids:                  # Lista de IDs de canales o grupos de Telegram
-    - -1001234567890            # Reemplazar con los IDs reales
-    - -1009876543210            # Reemplazar con los IDs reales
+    - id: 12345678
+      name: "Nombre del evento"
 
 # Configuración de la API de Gancio
 gancio_api:

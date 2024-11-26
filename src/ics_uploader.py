@@ -113,90 +113,190 @@ def compress_image(image_path, max_size_kb=500):
         return img_byte_arr.getvalue()
 
 def send_event(config, event_details, base_filename, image_path=None, max_retries=5):
-    # Configuración del primer sitio
+    """Envía un evento a las APIs configuradas."""
+    # Configuración de APIs
     api_url_primary = config["gancio_api"]["url"].rstrip('"')
     api_token_primary = config["gancio_api"].get("token")
     excluded_channels_primary = config["gancio_api"].get("excluded_channels", [])
 
-    # Configuración del segundo sitio (opcional)
     api_url_secondary = config.get("secondary_api", {}).get("url", "").rstrip('"')
     api_token_secondary = config.get("secondary_api", {}).get("token")
     excluded_channels_secondary = config.get("secondary_api", {}).get("excluded_channels", [])
 
-    # Log de URLs y tokens configurados
-    logger.debug(f"Primary API URL: {api_url_primary}, Token: {'Present' if api_token_primary else 'Missing'}")
-    logger.debug(f"Secondary API URL: {api_url_secondary}, Token: {'Present' if api_token_secondary else 'Missing'}")
+    logger.debug(f"Primary API URL: {api_url_primary}, Token present: {'Yes' if api_token_primary else 'No'}")
+    logger.debug(f"Secondary API URL: {api_url_secondary}, Token present: {'Yes' if api_token_secondary else 'No'}")
 
-    # Obtener el ID del canal del nombre del archivo base
+    # Extraer información del canal
     channel_id = None
+    channel_name = None
     try:
-        # Asumimos que el base_filename contiene el ID del canal como prefijo
-        channel_id = int(base_filename.split('_')[0])
-    except (ValueError, IndexError):
-        logger.warning(f"No se pudo extraer el ID del canal del archivo: {base_filename}")
+        channel_parts = base_filename.split('_')
+        if len(channel_parts) > 0:
+            channel_id = int(channel_parts[0])
+            for channel in config["telegram_bot"]["channels"]:
+                if int(channel["id"]) == channel_id:
+                    channel_name = channel["name"]
+                    break
+    except (ValueError, IndexError) as e:
+        logger.warning(f"Error extracting channel info from {base_filename}: {e}")
 
-    # Datos del evento
-    data = {
-        "title": event_details["title"].rstrip("`"),
-        "place_name": event_details["place_name"],
-        "place_address": event_details["place_address"].rstrip("`"),
-        "start_datetime": str(int(event_details["start_datetime"])),
-        "multidate": "false",
-    }
+    # Preparar datos del evento
+    try:
+        # Asegurar que los timestamps son enteros válidos
+        start_timestamp = int(float(event_details["start_datetime"]))
+        end_timestamp = int(float(event_details.get("end_datetime", start_timestamp + 7200)))
 
-    if "end_datetime" in event_details:
-        data["end_datetime"] = str(int(event_details["end_datetime"]))
-        data["multidate"] = "true" if (event_details["end_datetime"] - event_details["start_datetime"]) > 86400 else "false"
+        description = []
 
-    # Preparar archivos para enviar (incluyendo imagen si disponible)
-    def prepare_files(image_path):
-        files = {key: ("", value) for key, value in data.items()}
-        if image_path and Path(image_path).exists():
-            # Comprimir imagen en memoria
-            image_bytes = compress_image(image_path)
-            files["image"] = ("image.jpg", image_bytes, "image/jpeg")
-            files["image_name"] = (None, "")
-            files["image_focalpoint"] = (None, "0,0")
-        return files
+        # Primero la descripción original si existe
+        if event_details.get("description"):
+            description.append(event_details["description"])
 
-    # Función para hacer la solicitud a una API
-    def post_event(api_url, headers, files):
-        retries = 0
-        success = False
-        while retries < max_retries:
+        data = {
+            "title": str(event_details.get("title", "")).strip(),
+            "description": "\n".join(description),  # Unimos con saltos de línea
+            "place_name": str(event_details.get("place_name", "")).strip(),
+            "place_address": str(event_details.get("place_address", "")).strip(),
+            "start_datetime": str(start_timestamp),
+            "end_datetime": str(end_timestamp),
+            "online": "false",
+            "multidate": str((end_timestamp - start_timestamp) > 86400).lower(),
+            "tags": [
+                "Generado automáticamente",
+                channel_name if channel_name else "CalGen"
+            ]
+        }
+
+        # Añadir geolocalización si está disponible
+        if "place_latitude" in event_details and "place_longitude" in event_details:
+            data["place_latitude"] = str(event_details["place_latitude"])
+            data["place_longitude"] = str(event_details["place_longitude"])
+
+        logger.debug(f"Prepared event data: {json.dumps(data, indent=2, ensure_ascii=False)}")
+
+        def prepare_files(image_path, data):
+            """Prepara los archivos para el envío multipart/form-data."""
             try:
-                logger.info(f"Attempting to send event to {api_url} (Attempt {retries + 1}/{max_retries})")
-                response = requests.post(api_url, files=files, headers=headers if headers else {})
-                if response.status_code == 200:
-                    logger.info(f"Successfully sent event to {api_url}")
-                    success = True
-                    break
-                elif response.status_code == 429:
-                    retries += 1
-                    sleep(2**retries)
-                else:
-                    logger.error(f"Error {response.status_code}: {response.text}")
-                    break
+                files = []
+                
+                # Agregar campos base como form-data
+                files.extend([
+                    ("title", (None, data["title"])),
+                    ("description", (None, data["description"])),
+                    ("place_name", (None, data["place_name"])),
+                    ("place_address", (None, data["place_address"])),
+                    ("start_datetime", (None, data["start_datetime"])),
+                    ("end_datetime", (None, data["end_datetime"])),
+                    ("online", (None, data["online"])),
+                    ("multidate", (None, data["multidate"]))
+                ])
+
+                # Agregar coordenadas si existen
+                if "place_latitude" in data and "place_longitude" in data:
+                    files.extend([
+                        ("place_latitude", (None, data["place_latitude"])),
+                        ("place_longitude", (None, data["place_longitude"]))
+                    ])
+
+                # Agregar tags como campos separados
+                for tag in data["tags"]:
+                    files.append(("tags", (None, str(tag))))
+
+                # Agregar imagen si existe
+                if image_path and Path(image_path).exists():
+                    try:
+                        image_bytes = compress_image(image_path)
+                        files.extend([
+                            ("image", ("image.jpg", image_bytes, "image/jpeg")),
+                            ("image_name", (None, "")),
+                            ("image_focalpoint", (None, "0,0"))
+                        ])
+                    except Exception as e:
+                        logger.error(f"Error processing image {image_path}: {e}")
+
+                return files
+
             except Exception as e:
-                logger.error(f"Failed to send event to {api_url}: {e}")
-                break
-        return success
+                logger.error(f"Error preparing files: {e}", exc_info=True)
+                return None
 
-    # Enviar al primer sitio si el canal no está excluido
-    primary_success = True
-    if channel_id not in excluded_channels_primary:
-        headers_primary = {"Authorization": f"Bearer {api_token_primary}"} if api_token_primary else None
-        primary_success = post_event(api_url_primary, headers_primary, prepare_files(image_path))
-    else:
-        logger.info(f"Canal {channel_id} excluido de la API primaria. No se enviará el evento.")
+        def post_event(api_url, headers, files):
+            """Envía el evento a una API específica con reintentos."""
+            if not files:
+                logger.error("No files prepared for sending")
+                return False
 
-    # Enviar al segundo sitio si el canal no está excluido
-    secondary_success = True
-    if api_url_secondary and channel_id not in excluded_channels_secondary:
-        headers_secondary = {"Authorization": f"Bearer {api_token_secondary}"} if api_token_secondary else None
-        secondary_success = post_event(api_url_secondary, headers_secondary, prepare_files(image_path))
-    else:
-        logger.info(f"Canal {channel_id} excluido de la API secundaria o API secundaria no configurada.")
+            retries = 0
+            while retries < max_retries:
+                try:
+                    logger.info(f"Sending event to {api_url} (Attempt {retries + 1}/{max_retries})")
+                    
+                    response = requests.post(
+                        api_url,
+                        files=files,
+                        headers=headers if headers else {},
+                        timeout=30
+                    )
+                    
+                    if response.status_code == 200:
+                        logger.info(f"Successfully sent event: {data['title']}")
+                        return True
+                    else:
+                        logger.error(f"Error {response.status_code} sending event to {api_url}")
+                        logger.error(f"Response: {response.text}")
+                        
+                        if response.status_code == 400:
+                            logger.error("Bad Request. Form data being sent:")
+                            for field in files:
+                                if field[0] == "image":
+                                    logger.error(f"Field: {field[0]}, Type: image/jpeg")
+                                else:
+                                    logger.error(f"Field: {field[0]}, Value: {field[1][1]}")
+                            break
+                        elif response.status_code == 429:
+                            wait_time = 2 ** retries
+                            logger.warning(f"Rate limited. Waiting {wait_time} seconds...")
+                            sleep(wait_time)
+                            retries += 1
+                            continue
+                        break
 
-    # Retornar el estado de éxito por separado para cada envío
-    return primary_success, secondary_success
+                except requests.exceptions.Timeout:
+                    logger.error("Request timed out")
+                    retries += 1
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"Request error: {e}")
+                    retries += 1
+                except Exception as e:
+                    logger.error(f"Unexpected error: {e}", exc_info=True)
+                    break
+
+                if retries < max_retries:
+                    sleep(2 ** retries)
+                    continue
+
+            return False
+
+        # Envío a API primaria
+        primary_success = False
+        if channel_id not in excluded_channels_primary:
+            headers_primary = {"Authorization": f"Bearer {api_token_primary}"} if api_token_primary else None
+            files = prepare_files(image_path, data)
+            primary_success = post_event(api_url_primary, headers_primary, files)
+        else:
+            logger.info(f"Channel {channel_id} ({channel_name}) excluded from primary API")
+
+        # Envío a API secundaria
+        secondary_success = False
+        if api_url_secondary and channel_id not in excluded_channels_secondary:
+            headers_secondary = {"Authorization": f"Bearer {api_token_secondary}"} if api_token_secondary else None
+            files = prepare_files(image_path, data)
+            secondary_success = post_event(api_url_secondary, headers_secondary, files)
+        else:
+            logger.info(f"Channel {channel_id} ({channel_name}) excluded from secondary API")
+
+        return primary_success, secondary_success
+
+    except Exception as e:
+        logger.error(f"Error in send_event: {e}", exc_info=True)
+        return False, False
