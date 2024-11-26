@@ -1,54 +1,105 @@
 # CalGen Bot Project
 
-Bot de Telegram que descarga imágenes de canales específicos, procesa OCR y genera archivos ICS. Incluye automatización y monitoreo.
+Este proyecto es un bot que descarga imágenes de canales de Telegram específicos, las procesa usando OCR y genera archivos ICS con la información extraída. Incluye sistema de cron jobs para automatización y notificaciones por correo.
 
 ## Características
 
-- Descarga automática de imágenes de canales Telegram
-- OCR y extracción de información de eventos
+- Descarga de imágenes desde canales de Telegram
+- Procesamiento de imágenes con OCR
+- Extracción de texto de las publicaciones
 - Generación de archivos ICS
-- Monitoreo y notificaciones por email
+- Tareas automatizadas cada 30 minutos
+- Sistema de monitorización y alertas por correo
 - Rotación automática de logs
 
 ## Requisitos
 
 - Docker y Docker Compose
-- Cuenta SMTP para notificaciones
+- Cuenta SMTP para notificaciones (Brevo u otro servicio)
 
-## Instalación
+## Configuración
 
-1. Configura los archivos necesarios:
-```bash
-cp settings.yaml.example settings.yaml
-# Edita settings.yaml con tus configuraciones
+1. **Clonar el repositorio**:
+    ```bash
+    git clone <repositorio>
+    cd calgen_bot
+    ```
+
+2. **Configurar el entorno**:
+    Ejecuta el script `setup.sh` para crear la estructura de directorios necesaria y ajustar los permisos:
+    
+    Primero, asegúrate de que el script tenga permisos de ejecución:
+    
+    ```bash
+    chmod +x setup.sh
+    ```
+    
+    Luego, ejecuta el script para configurar el entorno:
+    
+    ```bash
+    sudo ./setup.sh
+    ```
+
+3. **Configurar crontab**:
+    ```bash
+    crontab -e
+    ```
+    Añadir:
+    ```bash
+    # Ejecutar script principal cada 30 minutos y check de errores
+    0,30 * * * * docker exec calendar_generator bash -c "python3 /app/src/main.py >> /app/logs/app.log 2>&1 && /app/check_calendar_generator.sh >> /app/logs/containers_check.log 2>&1"
+
+    # Logrotate diario
+    0 0 * * * docker exec calendar_generator bash -c "/usr/sbin/logrotate -fv /etc/logrotate.conf >> /app/logs/logrotate_cron.log 2>&1"
+    ```
+
+## Despliegue
+
+1. **Construir y arrancar contenedor**:
+    ```bash
+    docker-compose up -d --build
+    ```
+
+2. **Verificar logs**:
+    ```bash
+    docker exec calendar_generator tail -f /app/logs/app.log
+    ```
+
+## Mantenimiento
+
+- Los logs se rotan diariamente
+- Se mantienen 7 días de histórico
+- Las notificaciones de error se envían por correo
+- Los textos de las publicaciones se usan como descripción en la API
+
+## Estructura
+
+```
+calgen_bot/
+├── logs/           # Logs del sistema
+├── session/        # Sesión de Telegram
+├── sqlite_db/      # Base de datos
+├── src/            # Código fuente
+├── plain_texts/    # Textos extraídos del OCR
+├── download_tracker/  # Registro de descargas de Telegram
+├── ics/            # Archivos ICS generados
+└── settings.yaml   # Configuración
 ```
 
-2. Inicia el servicio:
+## Pruebas Manuales
+
 ```bash
-docker-compose up -d --build
+# Probar script principal
+docker exec calendar_generator python3 /app/src/main.py
+
+# Probar check de errores
+docker exec calendar_generator /app/check_calendar_generator.sh
+
+# Probar rotación de logs
+docker exec calendar_generator /usr/sbin/logrotate -fv /etc/logrotate.conf
 ```
-
-## Monitoreo
-
-Verificar logs:
-```bash
-# Logs de supervisor
-docker exec calendar_generator cat /app/logs/supervisor/supervisord.log
-
-# Logs de aplicación
-docker exec calendar_generator cat /app/logs/app/app.log
-
-# Estado de procesos
-docker exec calendar_generator supervisorctl status
-```
-
-## Funcionamiento
-
-- Ejecución automática cada hora
-- Rotación diaria de logs (7 días de histórico)
-- Notificaciones por email en caso de errores
-- Los directorios y estructura se crean automáticamente
 
 ## Licencia
 
 MIT License
+

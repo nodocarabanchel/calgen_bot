@@ -20,39 +20,31 @@ def load_config():
 
 
 def setup_logging(config, log_name=None):
-    log_file = config.get("logging", {}).get("log_file", "app/logs/app.log")
+    log_file = config.get("logging", {}).get("log_file", "logs/app.log")
     log_level_str = config.get("logging", {}).get("log_level", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
-    # Obtén el logger y configura el nivel
     logger = logging.getLogger(log_name or __name__)
-    if logger.hasHandlers():  # Add this check
-        logger.handlers.clear()  # Clear existing handlers
     logger.setLevel(log_level)
 
-    # Agrega los handlers solo si el logger no tiene handlers previos
-    if not logger.hasHandlers():
-        file_handler = logging.FileHandler(log_file)
-        stream_handler = logging.StreamHandler(sys.stdout)
+    if logger.hasHandlers():
+        logger.handlers.clear()
 
-        # Configuración del formato del log
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
-        )
-        file_handler.setFormatter(formatter)
-        stream_handler.setFormatter(formatter)
-
-        # Añadir handlers
-        logger.addHandler(file_handler)
-        logger.addHandler(stream_handler)
-
-    logger.info(
-        f"Logging setup complete for {log_name if log_name else 'root'}. Logger level: {logging.getLevelName(logger.level)}"
+    # Solo agrega FileHandler para evitar duplicación de salida
+    file_handler = logging.FileHandler(log_file)
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
     )
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    logger.info(f"Logging setup complete for {log_name if log_name else 'root'}. Logger level: {logging.getLevelName(logger.level)}")
     logger.info(f"Log file: {log_file}")
 
     return logger
+
+
 
 
 def get_image_hash(image_path, hash_size=8):

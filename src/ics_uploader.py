@@ -99,15 +99,18 @@ def extract_event_details_from_ics(ics_file):
         logger.error(f"Failed to extract event details from ICS file: {e}", exc_info=True)
     return []
 
-def compress_and_save_image(image_path, output_path, max_size_kb=500):
-    """Compresses an image and saves it in JPEG format."""
+def compress_image(image_path, max_size_kb=500):
+    """Compresses an image and returns it as bytes."""
     with Image.open(image_path) as img:
+        img_byte_arr = io.BytesIO()
         quality = 90
-        img.save(output_path, format="JPEG", quality=quality)
-        while os.path.getsize(output_path) > max_size_kb * 1024 and quality > 20:
+        img.save(img_byte_arr, format="JPEG", quality=quality)
+        while img_byte_arr.tell() > max_size_kb * 1024 and quality > 20:
             quality -= 10
-            img.save(output_path, format="JPEG", quality=quality)
-    return output_path
+            img_byte_arr.seek(0)
+            img_byte_arr.truncate()
+            img.save(img_byte_arr, format="JPEG", quality=quality)
+        return img_byte_arr.getvalue()
 
 def send_event(config, event_details, base_filename, image_path=None, max_retries=5):
     # Configuración del primer sitio
@@ -145,15 +148,13 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
         data["end_datetime"] = str(int(event_details["end_datetime"]))
         data["multidate"] = "true" if (event_details["end_datetime"] - event_details["start_datetime"]) > 86400 else "false"
 
-    # Ruta para la imagen comprimida
-    compressed_image_path = "/tmp/compressed_image.jpg"
-
     # Preparar archivos para enviar (incluyendo imagen si disponible)
     def prepare_files(image_path):
         files = {key: ("", value) for key, value in data.items()}
         if image_path and Path(image_path).exists():
-            compress_and_save_image(image_path, compressed_image_path)
-            files["image"] = ("image.jpg", open(compressed_image_path, "rb"), "image/jpeg")
+            # Comprimir imagen en memoria
+            image_bytes = compress_image(image_path)
+            files["image"] = ("image.jpg", image_bytes, "image/jpeg")
             files["image_name"] = (None, "")
             files["image_focalpoint"] = (None, "0,0")
         return files
@@ -197,11 +198,5 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     else:
         logger.info(f"Canal {channel_id} excluido de la API secundaria o API secundaria no configurada.")
 
-    # Limpiar el archivo temporal comprimido
-    if os.path.exists(compressed_image_path):
-        os.remove(compressed_image_path)
-        logger.info(f"Archivo temporal {compressed_image_path} eliminado después de enviar los eventos.")
-
     # Retornar el estado de éxito por separado para cada envío
     return primary_success, secondary_success
-
