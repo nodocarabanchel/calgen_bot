@@ -148,13 +148,14 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
 
         description = []
 
-        # Primero la descripción original si existe
         if event_details.get("description"):
-            description.append(event_details["description"])
+            description_text = event_details["description"].strip()
+            description_text += "\n\n"
+            description.append(description_text)
 
         data = {
             "title": str(event_details.get("title", "")).strip(),
-            "description": "\n".join(description),  # Unimos con saltos de línea
+            "description": "".join(description),  
             "place_name": str(event_details.get("place_name", "")).strip(),
             "place_address": str(event_details.get("place_address", "")).strip(),
             "start_datetime": str(start_timestamp),
