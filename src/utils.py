@@ -24,23 +24,29 @@ def setup_logging(config, log_name=None):
     log_level_str = config.get("logging", {}).get("log_level", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
-    logger = logging.getLogger(log_name or __name__)
-    logger.setLevel(log_level)
+    # Configurar el logger raíz
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
 
-    if logger.hasHandlers():
-        logger.handlers.clear()
+    # Limpiar handlers existentes
+    if root_logger.hasHandlers():
+        root_logger.handlers.clear()
 
-    # Solo agrega FileHandler para evitar duplicación de salida
+    # Crear el file handler
     file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(log_level)
     formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"
     )
     file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+    root_logger.addHandler(file_handler)
 
-    logger.info(f"Logging setup complete for {log_name if log_name else 'root'}. Logger level: {logging.getLevelName(logger.level)}")
-    logger.info(f"Log file: {log_file}")
+    # Obtener el logger específico si se proporciona un nombre
+    if log_name:
+        logger = logging.getLogger(log_name)
+    else:
+        logger = root_logger
 
     return logger
 
