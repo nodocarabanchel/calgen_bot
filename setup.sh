@@ -23,24 +23,29 @@ error_exit() {
 
 # Función para crear directorios si no existen
 create_directory() {
-    local dir=$1
+    local dir="$1"
     echo "Creando directorio: $dir"
-    mkdir -p "$dir" || error_exit "No se pudo crear el directorio $dir"
+    if [ ! -d "$dir" ]; then
+        mkdir -p "$dir" || error_exit "No se pudo crear el directorio $dir"
+    fi
     chmod 775 "$dir" || error_exit "No se pudieron ajustar permisos para $dir"
-    chown -R $APP_USER:$APP_GROUP "$dir" || error_exit "No se pudo cambiar la propiedad de $dir"
+    chown -R "$APP_USER:$APP_GROUP" "$dir" || error_exit "No se pudo cambiar la propiedad de $dir"
 }
 
 # Función para crear archivos de log
 create_log_file() {
-    local file=$1
+    local file="$1"
     echo "Creando archivo de log: $file"
     touch "$file" || error_exit "No se pudo crear el archivo $file"
     chmod 666 "$file" || error_exit "No se pudieron ajustar permisos para $file"
-    chown $APP_USER:$APP_GROUP "$file" || error_exit "No se pudo cambiar la propiedad de $file"
+    chown "$APP_USER:$APP_GROUP" "$file" || error_exit "No se pudo cambiar la propiedad de $file"
 }
 
 # Inicio de la configuración
 echo "Configurando el entorno de CalGen Bot..."
+
+# Crear directorio config si no existe
+mkdir -p "$BASE_DIR/config"
 
 # Crear directorios necesarios
 create_directory "$LOG_DIR"
@@ -56,6 +61,35 @@ create_directory "$IMAGES_DIR"
 create_log_file "$LOG_DIR/app.log"
 create_log_file "$LOG_DIR/containers_check.log"
 create_log_file "$LOG_DIR/logrotate_cron.log"
+create_log_file "$LOG_DIR/reported_container_errors.txt"
+
+# Configurar logrotate
+echo "Configurando logrotate..."
+cat > "$BASE_DIR/config/logrotate.conf" << EOF
+/app/logs/*.log {
+    daily
+    rotate 7
+    compress
+    missingok
+    notifempty
+    su appuser appgroup
+    create 664 appuser appgroup
+    postrotate
+        chown appuser:appgroup /app/logs/*.log
+    endscript
+}
+EOF
+
+# Crear el archivo de estado de logrotate
+touch "$LOG_DIR/logrotate.status"
+chmod 644 "$LOG_DIR/logrotate.status"
+
+# Configurar crontab para el usuario actual
+echo "Configurando crontab..."
+(crontab -l 2>/dev/null; echo "# Ejecutar script principal cada 30 minutos y check de errores
+0,30 * * * * docker exec calendar_generator python3 /app/src/main.py && docker exec calendar_generator /app/check_calendar_generator.sh >> /app/logs/containers_check.log 2>&1
+# Logrotate diario
+0 0 * * * docker exec -u root calendar_generator /usr/sbin/logrotate /etc/logrotate.conf >> /app/logs/logrotate_cron.log 2>&1") | crontab -
 
 # Crear archivo de configuración si no existe
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -65,5 +99,4 @@ else
     echo "El archivo de configuración ya existe: $CONFIG_FILE"
 fi
 
-# Mostrar mensaje de finalización
 echo "Configuración completada. Ahora puedes construir y ejecutar el contenedor con Docker Compose."
