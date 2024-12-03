@@ -105,11 +105,17 @@ class EntityExtractor:
         self.config = config
         self.max_retries = 3
         self.client = None
-        if (
-            config.get("external_api", {}).get("use")
-            and config["external_api"]["service"] == "groq"
-        ):
-            self.client = Groq(api_key=config["external_api"]["api_key"])
+        
+        # Verificar si se debe usar la API externa
+        if config.get("external_api", {}).get("use"):
+            if config["external_api"]["service"] == "groq":
+                try:
+                    api_key = config["external_api"]["api_key"]
+                    # Inicializar el cliente Groq con solo la api_key
+                    self.client = Groq(api_key=api_key)
+                except Exception as e:
+                    logger.error(f"Error initializing Groq client: {str(e)}")
+                    self.client = None
 
     def get_improved_prompt(self, text: str) -> str:
         current_year = datetime.now().year
