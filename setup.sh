@@ -86,10 +86,8 @@ chmod 644 "$LOG_DIR/logrotate.status"
 
 # Configurar crontab para el usuario actual
 echo "Configurando crontab..."
-(crontab -l 2>/dev/null; echo "# Ejecutar script principal cada 30 minutos y check de errores
-0,30 * * * * docker exec calendar_generator python3 /app/src/main.py && docker exec calendar_generator /app/check_calendar_generator.sh >> /app/logs/containers_check.log 2>&1
-# Logrotate diario
-0 0 * * * docker exec -u root calendar_generator /usr/sbin/logrotate /etc/logrotate.conf >> /app/logs/logrotate_cron.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "*/30 * * * * docker exec calendar_generator bash -c \"python3 /app/src/main.py >> /app/logs/app.log 2>&1 && /app/check_calendar_generator.sh >> /app/logs/containers_check.log 2>&1\"") | crontab -
+(crontab -l 2>/dev/null; echo "0 0 * * * docker exec calendar_generator bash -c \"/usr/sbin/logrotate /etc/logrotate.conf >> /app/logs/logrotate_cron.log 2>&1\"") | crontab -
 
 # Crear archivo de configuración si no existe
 if [ ! -f "$CONFIG_FILE" ]; then
