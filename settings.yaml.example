@@ -49,8 +49,12 @@ secondary_api:
   url: "https://another.api.url"  # URL de la API secundaria (opcional)
   token: "your_second_token_here" # Token de la API secundaria (opcional)
 
-# Configuración de la API de OpenCage (para geolocalización)
+# geocoding_service: "google"  # Cambia a "opencage" para usar Google Places API
 opencage_api:
+  key: "your_key"
+google_maps_api:
+  key: "your_key"
+
   key: "your_opencage_api_key_here"  # Clave API de OpenCage (obtenida en https://opencagedata.com/)
 
 # Rutas de la base de datos para el rastreador de eventos
