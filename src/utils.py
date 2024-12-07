@@ -72,6 +72,55 @@ def are_images_similar(hash1, hash2, threshold=10):
     return distance <= threshold, distance
 
 
+class GooglePlacesService:
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.autocomplete_url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
+        self.details_url = "https://maps.googleapis.com/maps/api/place/details/json"
+
+    def get_place_details(self, place_id):
+        params = {
+            "place_id": place_id,
+            "key": self.api_key
+        }
+        try:
+            response = requests.get(self.details_url, params=params)
+            response.raise_for_status()
+            result = response.json()
+            if result.get("result"):
+                location = result["result"]["geometry"]["location"]
+                return {
+                    "latitude": location["lat"],
+                    "longitude": location["lng"],
+                    "formatted": result["result"]["formatted_address"],
+                }
+            return None
+        except requests.RequestException as e:
+            logging.error(f"Error in Google Places details: {str(e)}")
+            return None
+
+    def geocode(self, address):
+        # Autocomplete to get place_id
+        params = {
+            "input": address,
+            "types": "establishment",
+            "region": "es",
+            "key": self.api_key
+        }
+        try:
+            response = requests.get(self.autocomplete_url, params=params)
+            response.raise_for_status()
+            result = response.json()
+            if result.get("predictions"):
+                # Take the first suggestion
+                place_id = result["predictions"][0]["place_id"]
+                return self.get_place_details(place_id)
+            return None
+        except requests.RequestException as e:
+            logging.error(f"Error in Google Places autocomplete: {str(e)}")
+            return None
+
+
 class GeocodingService:
     def __init__(self, api_key):
         self.api_key = api_key
@@ -114,11 +163,20 @@ class GeocodingService:
 
 
 def get_geolocation(config, address):
-    geocoding_service = GeocodingService(api_key=config["opencage_api"]["key"])
-    location = geocoding_service.geocode(address)
-    if location:
-        return location
-    return None
+    service = config.get("geocoding_service", "opencage").lower()
+    
+    if service == "opencage":
+        geocoding_service = GeocodingService(api_key=config["opencage_api"]["key"])
+        location = geocoding_service.geocode(address)
+    elif service == "google":
+        google_places_service = GooglePlacesService(api_key=config["google_maps_api"]["key"])
+        location = google_places_service.geocode(address)
+    else:
+        logging.error(f"Unknown geocoding service: {service}")
+        return None
+    
+    return location
+
 
 
 def save_to_file(data, file_path):
