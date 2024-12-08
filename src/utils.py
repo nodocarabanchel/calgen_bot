@@ -75,49 +75,137 @@ def are_images_similar(hash1, hash2, threshold=10):
 class GooglePlacesService:
     def __init__(self, api_key):
         self.api_key = api_key
-        self.autocomplete_url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
-        self.details_url = "https://maps.googleapis.com/maps/api/place/details/json"
+        self.places_autocomplete_url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
+        self.places_details_url = "https://maps.googleapis.com/maps/api/place/details/json"
+        self.geocoding_url = "https://maps.googleapis.com/maps/api/geocode/json"
 
     def get_place_details(self, place_id):
         params = {
             "place_id": place_id,
-            "key": self.api_key
+            "key": self.api_key,
+            "fields": "geometry,formatted_address,address_component,type"
         }
         try:
-            response = requests.get(self.details_url, params=params)
+            response = requests.get(self.places_details_url, params=params)
             response.raise_for_status()
             result = response.json()
+            
             if result.get("result"):
-                location = result["result"]["geometry"]["location"]
-                return {
-                    "latitude": location["lat"],
-                    "longitude": location["lng"],
-                    "formatted": result["result"]["formatted_address"],
-                }
+                return self._format_location_result(result["result"])
             return None
         except requests.RequestException as e:
             logging.error(f"Error in Google Places details: {str(e)}")
             return None
 
-    def geocode(self, address):
-        # Autocomplete to get place_id
+    def geocode_address(self, address):
         params = {
-            "input": address,
-            "types": "establishment",
-            "region": "es",
-            "key": self.api_key
+            "address": f"{address}, Comunidad de Madrid, Spain",
+            "key": self.api_key,
+            "bounds": "39.8847,-4.5790|41.1665,-3.0527",  # Bounds para toda la Comunidad de Madrid
+            "components": "administrative_area:Comunidad de Madrid|country:ES"
         }
         try:
-            response = requests.get(self.autocomplete_url, params=params)
+            response = requests.get(self.geocoding_url, params=params)
             response.raise_for_status()
             result = response.json()
-            if result.get("predictions"):
-                # Take the first suggestion
-                place_id = result["predictions"][0]["place_id"]
-                return self.get_place_details(place_id)
+            
+            if result.get("results"):
+                return self._format_location_result(result["results"][0])
             return None
         except requests.RequestException as e:
-            logging.error(f"Error in Google Places autocomplete: {str(e)}")
+            logging.error(f"Error in Google Geocoding: {str(e)}")
+            return None
+
+    def _format_location_result(self, result):
+        location = result["geometry"]["location"]
+        categories = []
+        
+        if "address_components" in result:
+            # Almacenamos temporalmente diferentes tipos de componentes
+            district = None
+            neighborhood = None
+            locality = None
+            
+            for component in result["address_components"]:
+                types = component["types"]
+                name = component["long_name"]
+                
+                # Priorización de componentes (excluimos routes)
+                if "sublocality_level_1" in types:
+                    district = name
+                elif "neighborhood" in types:
+                    neighborhood = name
+                elif "locality" in types and name != "Madrid":
+                    locality = name
+            
+            # Añadir componentes en orden de prioridad
+            if district:
+                categories.append(district)
+            if neighborhood and neighborhood != district:
+                categories.append(neighborhood)
+            if locality and locality not in categories:
+                categories.append(locality)
+            
+            # Si después de todo no tenemos categorías, intentar con el tipo de lugar
+            if not categories and "types" in result:
+                relevant_types = [t for t in result["types"] 
+                                if t not in ["point_of_interest", "establishment", 
+                                           "street_address", "premise", "route"]]
+                if relevant_types:
+                    categories.extend(relevant_types)
+
+        return {
+            "latitude": location["lat"],
+            "longitude": location["lng"],
+            "formatted": result["formatted_address"],
+            "categories": categories
+        }
+
+    def geocode(self, address):
+        # Centro aproximado de la Comunidad de Madrid y radio que cubra toda la región
+        center_lat = 40.4168
+        center_lng = -3.7038
+        radius = 50000  # 50km para cubrir toda la Comunidad de Madrid
+
+        # Intento 1: Buscar como establecimiento
+        try:
+            params = {
+                "input": address,
+                "types": "establishment",
+                "location": f"{center_lat},{center_lng}",
+                "radius": f"{radius}",
+                "strictbounds": True,
+                "key": self.api_key,
+                "components": "country:es"
+            }
+            
+            response = requests.get(self.places_autocomplete_url, params=params)
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get("predictions"):
+                place_id = result["predictions"][0]["place_id"]
+                place_result = self.get_place_details(place_id)
+                if place_result:
+                    return place_result
+            
+            # Intento 2: Buscar como dirección
+            params["types"] = "address"
+            response = requests.get(self.places_autocomplete_url, params=params)
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get("predictions"):
+                place_id = result["predictions"][0]["place_id"]
+                place_result = self.get_place_details(place_id)
+                if place_result:
+                    return place_result
+            
+            # Intento 3: Usar geocoding directo
+            return self.geocode_address(address)
+            
+        except requests.RequestException as e:
+            logging.error(f"Error in geocoding: {str(e)}")
             return None
 
 
