@@ -99,10 +99,12 @@ class GooglePlacesService:
 
     def geocode_address(self, address):
         params = {
-            "address": f"{address}, Comunidad de Madrid, Spain",
-            "key": self.api_key,
+            "input": address,
+            "types": "establishment",
             "bounds": "39.8847,-4.5790|41.1665,-3.0527",  # Bounds para toda la Comunidad de Madrid
-            "components": "administrative_area:Comunidad de Madrid|country:ES"
+            "strictbounds": True,
+            "key": self.api_key,
+            "components": "country:es|administrative_area:Comunidad de Madrid"
         }
         try:
             response = requests.get(self.geocoding_url, params=params)
