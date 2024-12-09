@@ -50,7 +50,7 @@ Este proyecto es un bot que descarga imágenes de canales de Telegram específic
     0,30 * * * * docker exec calendar_generator bash -c "python3 /app/src/main.py >> /app/logs/app.log 2>&1 && /app/check_calendar_generator.sh >> /app/logs/containers_check.log 2>&1"
 
     # Logrotate diario
-    0 0 * * * docker exec calendar_generator bash -c "/usr/sbin/logrotate -fv /etc/logrotate.conf >> /app/logs/logrotate_cron.log 2>&1"
+    45 2 * * * docker exec calendar_generator bash -c "/usr/sbin/logrotate -fv /etc/logrotate.conf >> /app/logs/logrotate_cron.log 2>&1"
     ```
 
 ## Despliegue
