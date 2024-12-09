@@ -143,6 +143,7 @@ async def main():
             with open(text_file_path, "w", encoding="utf-8") as text_file:
                 text_file.write(combined_text)
             logger.info(f"Extracting event info from: {combined_text[:100]}...")
+        
             extracted_data_list = extractor.extract_event_info(combined_text, metadata)
             
             if extracted_data_list:

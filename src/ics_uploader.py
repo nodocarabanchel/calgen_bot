@@ -165,7 +165,7 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
             "tags": [
                 "Generado automáticamente",
                 channel_name if channel_name else "CalGen"
-            ]
+            ] + event_details.get("categories", [])
         }
 
         # Añadir geolocalización si está disponible
