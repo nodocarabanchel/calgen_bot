@@ -316,12 +316,14 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                             "No se proporcionó fecha/hora de finalización. El evento no tendrá hora de finalización."
                         )
 
-                    # Agregar tags y metadatos si están disponibles
                     if metadata:
+                        # Obtener categorías de ubicación si existen
+                        location_categories = metadata.get("location_data", {}).get("categories", [])
+                        
                         event_data["tags"] = [
                             metadata.get("channel_name", "Canal Desconocido"),
                             metadata.get("source", "Fuente Desconocida")
-                        ]
+                        ] + location_categories 
 
                 logger.info(f"Datos del evento extraídos: {validated_event_data_list}")
                 return validated_event_data_list
