@@ -109,10 +109,8 @@ class GooglePlacesService:
 
     def geocode_address(self, address):
         params = {
-            "input": address,
-            "types": "establishment",
+            "address": address,
             "bounds": "39.8847,-4.5790|41.1665,-3.0527",  # Bounds para toda la Comunidad de Madrid
-            "strictbounds": True,
             "key": self.api_key,
             "components": "country:es|administrative_area:Comunidad de Madrid"
         }
@@ -153,7 +151,7 @@ class GooglePlacesService:
                 "radius": f"{radius}",
                 "strictbounds": True,
                 "key": self.api_key,
-                "components": "country:es"
+                "components": "country:es|administrative_area:Comunidad de Madrid"
             }
             
             self.logger.info("Attempting to find location as establishment")
@@ -201,6 +199,50 @@ class GooglePlacesService:
             self.logger.error(f"Error in geocoding process: {str(e)}")
             return None
 
+    def _format_location_result(self, result):
+        """
+        Formatea el resultado de la API de Google Places/Geocoding en un formato estandarizado.
+        """
+        location = result["geometry"]["location"]
+        categories = []
+        
+        if "address_components" in result:
+            district = None
+            neighborhood = None
+            locality = None
+            
+            for component in result["address_components"]:
+                types = component["types"]
+                name = component["long_name"]
+                
+                if "sublocality_level_1" in types:
+                    district = name
+                elif "neighborhood" in types:
+                    neighborhood = name
+                elif "locality" in types and name != "Madrid":
+                    locality = name
+            
+            if district:
+                categories.append(district)
+            if neighborhood and neighborhood != district:
+                categories.append(neighborhood)
+            if locality and locality not in categories:
+                categories.append(locality)
+            
+            # Si después de todo no tenemos categorías, intentar con el tipo de lugar
+            if not categories and "types" in result:
+                relevant_types = [t for t in result["types"] 
+                                if t not in ["point_of_interest", "establishment", 
+                                           "street_address", "premise", "route"]]
+                if relevant_types:
+                    categories.extend(relevant_types)
+
+        return {
+            "latitude": location["lat"],
+            "longitude": location["lng"],
+            "formatted": result["formatted_address"],
+            "categories": categories
+        }
 
 class GeocodingService:
     def __init__(self, api_key):

@@ -2,8 +2,12 @@ import json
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
+import os
+import time
 import pytz
+
+os.environ['TZ'] = 'Europe/Madrid'
+time.tzset()
 
 from calendar_generator import EntityExtractor, ICSExporter, OCRReader
 from ics_uploader import extract_event_details_from_ics, send_event
