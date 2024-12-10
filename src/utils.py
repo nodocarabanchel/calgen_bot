@@ -78,6 +78,7 @@ class GooglePlacesService:
         self.places_autocomplete_url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
         self.places_details_url = "https://maps.googleapis.com/maps/api/place/details/json"
         self.geocoding_url = "https://maps.googleapis.com/maps/api/geocode/json"
+        self.logger = logging.getLogger(__name__)
 
     def get_place_details(self, place_id):
         params = {
@@ -86,15 +87,24 @@ class GooglePlacesService:
             "fields": "geometry,formatted_address,address_component,type"
         }
         try:
+            self.logger.info(f"Getting place details for place_id: {place_id}")
+            self.logger.debug(f"Places Details API request: {self.places_details_url} with params: {params}")
+            
             response = requests.get(self.places_details_url, params=params)
             response.raise_for_status()
             result = response.json()
             
+            self.logger.debug(f"Places Details API response: {result}")
+            
             if result.get("result"):
-                return self._format_location_result(result["result"])
+                formatted_result = self._format_location_result(result["result"])
+                self.logger.info(f"Successfully retrieved and formatted place details: {formatted_result}")
+                return formatted_result
+            
+            self.logger.warning(f"No results found for place_id: {place_id}")
             return None
         except requests.RequestException as e:
-            logging.error(f"Error in Google Places details: {str(e)}")
+            self.logger.error(f"Error in Google Places details request: {str(e)}")
             return None
 
     def geocode_address(self, address):
@@ -107,64 +117,29 @@ class GooglePlacesService:
             "components": "country:es|administrative_area:Comunidad de Madrid"
         }
         try:
+            self.logger.info(f"Geocoding address: {address}")
+            self.logger.debug(f"Geocoding API request: {self.geocoding_url} with params: {params}")
+            
             response = requests.get(self.geocoding_url, params=params)
             response.raise_for_status()
             result = response.json()
             
+            self.logger.debug(f"Geocoding API response: {result}")
+            
             if result.get("results"):
-                return self._format_location_result(result["results"][0])
+                formatted_result = self._format_location_result(result["results"][0])
+                self.logger.info(f"Successfully geocoded address: {formatted_result}")
+                return formatted_result
+            
+            self.logger.warning(f"No geocoding results found for address: {address}")
             return None
         except requests.RequestException as e:
-            logging.error(f"Error in Google Geocoding: {str(e)}")
+            self.logger.error(f"Error in Google Geocoding request: {str(e)}")
             return None
 
-    def _format_location_result(self, result):
-        location = result["geometry"]["location"]
-        categories = []
-        
-        if "address_components" in result:
-            # Almacenamos temporalmente diferentes tipos de componentes
-            district = None
-            neighborhood = None
-            locality = None
-            
-            for component in result["address_components"]:
-                types = component["types"]
-                name = component["long_name"]
-                
-                # Priorización de componentes (excluimos routes)
-                if "sublocality_level_1" in types:
-                    district = name
-                elif "neighborhood" in types:
-                    neighborhood = name
-                elif "locality" in types and name != "Madrid":
-                    locality = name
-            
-            # Añadir componentes en orden de prioridad
-            if district:
-                categories.append(district)
-            if neighborhood and neighborhood != district:
-                categories.append(neighborhood)
-            if locality and locality not in categories:
-                categories.append(locality)
-            
-            # Si después de todo no tenemos categorías, intentar con el tipo de lugar
-            if not categories and "types" in result:
-                relevant_types = [t for t in result["types"] 
-                                if t not in ["point_of_interest", "establishment", 
-                                           "street_address", "premise", "route"]]
-                if relevant_types:
-                    categories.extend(relevant_types)
-
-        return {
-            "latitude": location["lat"],
-            "longitude": location["lng"],
-            "formatted": result["formatted_address"],
-            "categories": categories
-        }
-
     def geocode(self, address):
-        # Centro aproximado de la Comunidad de Madrid y radio que cubra toda la región
+        self.logger.info(f"Starting geocoding process for address: {address}")
+        
         center_lat = 40.4168
         center_lng = -3.7038
         radius = 50000  # 50km para cubrir toda la Comunidad de Madrid
@@ -181,33 +156,49 @@ class GooglePlacesService:
                 "components": "country:es"
             }
             
+            self.logger.info("Attempting to find location as establishment")
+            self.logger.debug(f"Places Autocomplete API request: {self.places_autocomplete_url} with params: {params}")
+            
             response = requests.get(self.places_autocomplete_url, params=params)
             response.raise_for_status()
             result = response.json()
             
+            self.logger.debug(f"Places Autocomplete API response: {result}")
+            
             if result.get("predictions"):
                 place_id = result["predictions"][0]["place_id"]
+                self.logger.info(f"Found establishment place_id: {place_id}")
                 place_result = self.get_place_details(place_id)
                 if place_result:
+                    self.logger.info("Successfully found location as establishment")
                     return place_result
             
             # Intento 2: Buscar como dirección
+            self.logger.info("Attempting to find location as address")
             params["types"] = "address"
+            
+            self.logger.debug(f"Places Autocomplete API request (address): {self.places_autocomplete_url} with params: {params}")
+            
             response = requests.get(self.places_autocomplete_url, params=params)
             response.raise_for_status()
             result = response.json()
             
+            self.logger.debug(f"Places Autocomplete API response (address): {result}")
+            
             if result.get("predictions"):
                 place_id = result["predictions"][0]["place_id"]
+                self.logger.info(f"Found address place_id: {place_id}")
                 place_result = self.get_place_details(place_id)
                 if place_result:
+                    self.logger.info("Successfully found location as address")
                     return place_result
             
             # Intento 3: Usar geocoding directo
+            self.logger.info("Attempting direct geocoding as fallback")
             return self.geocode_address(address)
             
         except requests.RequestException as e:
-            logging.error(f"Error in geocoding: {str(e)}")
+            self.logger.error(f"Error in geocoding process: {str(e)}")
             return None
 
 
