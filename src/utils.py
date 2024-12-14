@@ -84,7 +84,7 @@ class GooglePlacesService:
         params = {
             "place_id": place_id,
             "key": self.api_key,
-            "fields": "geometry,formatted_address,address_component,type"
+            "fields": "geometry,formatted_address,address_components,types"
         }
         try:
             self.logger.info(f"Getting place details for place_id: {place_id}")
@@ -107,34 +107,6 @@ class GooglePlacesService:
             self.logger.error(f"Error in Google Places details request: {str(e)}")
             return None
 
-    def geocode_address(self, address):
-        params = {
-            "address": address,
-            "bounds": "39.8847,-4.5790|41.1665,-3.0527",  # Bounds para toda la Comunidad de Madrid
-            "key": self.api_key,
-            "components": "country:es|administrative_area:Comunidad de Madrid"
-        }
-        try:
-            self.logger.info(f"Geocoding address: {address}")
-            self.logger.debug(f"Geocoding API request: {self.geocoding_url} with params: {params}")
-            
-            response = requests.get(self.geocoding_url, params=params)
-            response.raise_for_status()
-            result = response.json()
-            
-            self.logger.debug(f"Geocoding API response: {result}")
-            
-            if result.get("results"):
-                formatted_result = self._format_location_result(result["results"][0])
-                self.logger.info(f"Successfully geocoded address: {formatted_result}")
-                return formatted_result
-            
-            self.logger.warning(f"No geocoding results found for address: {address}")
-            return None
-        except requests.RequestException as e:
-            self.logger.error(f"Error in Google Geocoding request: {str(e)}")
-            return None
-
     def geocode(self, address):
         self.logger.info(f"Starting geocoding process for address: {address}")
         
@@ -144,15 +116,17 @@ class GooglePlacesService:
 
         # Intento 1: Buscar como establecimiento
         try:
-            params = {
-                "input": address,
-                "types": "establishment",
+            base_params = {
+                "input": f"{address}, Comunidad de Madrid",
                 "location": f"{center_lat},{center_lng}",
                 "radius": f"{radius}",
                 "strictbounds": True,
                 "key": self.api_key,
-                "components": "country:es|administrative_area:Comunidad de Madrid"
+                "region": "es"
             }
+            
+            # Intento con tipo establecimiento
+            params = {**base_params, "types": "establishment"}
             
             self.logger.info("Attempting to find location as establishment")
             self.logger.debug(f"Places Autocomplete API request: {self.places_autocomplete_url} with params: {params}")
@@ -173,7 +147,7 @@ class GooglePlacesService:
             
             # Intento 2: Buscar como dirección
             self.logger.info("Attempting to find location as address")
-            params["types"] = "address"
+            params = {**base_params, "types": "address"}
             
             self.logger.debug(f"Places Autocomplete API request (address): {self.places_autocomplete_url} with params: {params}")
             
@@ -191,12 +165,40 @@ class GooglePlacesService:
                     self.logger.info("Successfully found location as address")
                     return place_result
             
-            # Intento 3: Usar geocoding directo
+            # Intento 3: Usar geocoding directo como último recurso
             self.logger.info("Attempting direct geocoding as fallback")
             return self.geocode_address(address)
             
         except requests.RequestException as e:
             self.logger.error(f"Error in geocoding process: {str(e)}")
+            return None
+
+    def geocode_address(self, address):
+        params = {
+            "address": f"{address}, Comunidad de Madrid, España",
+            "bounds": "39.8847,-4.5790|41.1665,-3.0527",  # Bounds para toda la Comunidad de Madrid
+            "key": self.api_key,
+            "region": "es"
+        }
+        try:
+            self.logger.info(f"Geocoding address: {address}")
+            self.logger.debug(f"Geocoding API request: {self.geocoding_url} with params: {params}")
+            
+            response = requests.get(self.geocoding_url, params=params)
+            response.raise_for_status()
+            result = response.json()
+            
+            self.logger.debug(f"Geocoding API response: {result}")
+            
+            if result.get("results"):
+                formatted_result = self._format_location_result(result["results"][0])
+                self.logger.info(f"Successfully geocoded address: {formatted_result}")
+                return formatted_result
+            
+            self.logger.warning(f"No geocoding results found for address: {address}")
+            return None
+        except requests.RequestException as e:
+            self.logger.error(f"Error in Google Geocoding request: {str(e)}")
             return None
 
     def _format_location_result(self, result):
