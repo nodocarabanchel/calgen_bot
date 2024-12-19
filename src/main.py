@@ -10,7 +10,7 @@ os.environ['TZ'] = 'Europe/Madrid'
 time.tzset()
 
 from calendar_generator import EntityExtractor, ICSExporter, OCRReader
-from ics_uploader import extract_event_details_from_ics, send_event
+from ics_uploader import extract_event_details_from_ics, send_event, process_events_batch
 from sqlite_tracker import DatabaseManager
 from telegram_bot import TelegramBot
 from utils import (
@@ -63,7 +63,7 @@ async def main():
             config["telegram_bot"]["phone"],
             config["telegram_bot"]["session_file"],
             db_manager,
-            channels,  # Pasamos la lista de canales completa
+            channels,
             start_date.strftime("%Y-%m-%d") if start_date else None,
             config["telegram_bot"].get("max_posters_per_day", 50),
         )
@@ -82,6 +82,7 @@ async def main():
     else:
         logger.info("Telegram bot is disabled in settings")
         new_images = 0
+        channels = config["telegram_bot"]["channels"]
 
     images_folder = Path(config["directories"]["images"])
     new_image_files = [
@@ -140,7 +141,6 @@ async def main():
         }
         db_manager.add_image_hash_with_info(img_file.name, image_hash, similarity_info)
 
-        logger.info(f"Processing new image: {img_file.name}")
         text_file_path = text_output_folder / (img_file.stem + ".txt")
         ics_file_path = ics_output_folder / (img_file.stem + ".ics")
         text = reader.read(img_file)
@@ -235,22 +235,23 @@ async def main():
 
     logger.info(f"Total new events processed from images: {processed_events}")
 
+    # Nueva sección de procesamiento de ICS
     ics_files = [
         ics_file
         for ics_file in ics_output_folder.iterdir()
         if ics_file.suffix.lower() == ".ics"
     ]
     logger.info(f"Found {len(ics_files)} ICS files to process")
-
-    sent_events = 0
+    
+    all_events = []
     for ics_file in ics_files:
         events = extract_event_details_from_ics(ics_file)
-        for event_details in events:
-            # Incluir el canal en el ID del evento si está disponible
-            base_filename = ics_file.stem
-            channel_id = base_filename.split('_')[0] if '_' in base_filename else None
+        for event in events:
+            # Incluir el nombre base del archivo en los detalles del evento
+            event['base_filename'] = ics_file.stem
             
             # Buscar el nombre del canal en la configuración
+            channel_id = ics_file.stem.split('_')[0] if '_' in ics_file.stem else None
             channel_name = None
             if channel_id:
                 for channel in channels:
@@ -258,37 +259,34 @@ async def main():
                         channel_name = channel['name']
                         break
             
-            channel_prefix = f"{channel_name}_" if channel_name else ""
-            event_id = f"{channel_prefix}{event_details['title']}_{event_details['start_datetime']}_{event_details['place_name']}"
-
+            if channel_name:
+                event['tags'] = [
+                    channel_name,
+                    "Generado automáticamente via CalGen Bot"
+                ]
+            
+            # Preparar ID del evento
+            event_id = f"{channel_name+'_' if channel_name else ''}{event['title']}_{event['start_datetime']}_{event['place_name']}"
+            
+            # Añadir imagen si existe
+            image_path = images_folder / f"{ics_file.stem}.jpg"
+            if image_path.exists():
+                event['image_path'] = str(image_path)
+            
+            # Solo añadir si no ha sido enviado
             if not db_manager.is_event_sent(event_id):
-                logger.info(f"Attempting to send event: {event_details['title']}")
-                
-                # Agregar tags si existe información del canal
-                if channel_name:
-                    event_details['tags'] = [
-                        channel_name,
-                        "Generado automáticamente via CalGen Bot"
-                    ]
-                
-                image_file = images_folder / f"{base_filename}.jpg"
-                if image_file.exists():
-                    success = send_event(
-                        config, event_details, base_filename, str(image_file)
-                    )
-                else:
-                    success = send_event(config, event_details, base_filename)
-
-                if success:
-                    db_manager.mark_event_as_sent(event_id)
-                    logger.info(f"Event sent and marked as processed: {event_id}")
-                    sent_events += 1
-                else:
-                    logger.warning(f"Failed to send event: {event_id}")
+                all_events.append(event)
             else:
                 logger.info(f"Skipping already sent event: {event_id}")
 
-    logger.info(f"Total events sent in this execution: {sent_events}")
+    # Procesar todos los eventos en lotes
+    if all_events:
+        logger.info(f"Processing {len(all_events)} events in batches")
+        process_events_batch(config, all_events, db_manager)
+        logger.info(f"Finished processing all events")
+    else:
+        logger.info("No new events to process")
+
     logger.info("All processes completed successfully.")
     db_manager.close()
 

@@ -1,3 +1,4 @@
+import time
 import imghdr
 import io
 import json
@@ -112,192 +113,158 @@ def compress_image(image_path, max_size_kb=500):
             img.save(img_byte_arr, format="JPEG", quality=quality)
         return img_byte_arr.getvalue()
 
-def send_event(config, event_details, base_filename, image_path=None, max_retries=5):
-    """Envía un evento a las APIs configuradas."""
-    # Configuración de APIs
-    api_url_primary = config["gancio_api"]["url"].rstrip('"')
-    api_token_primary = config["gancio_api"].get("token")
-    excluded_channels_primary = config["gancio_api"].get("excluded_channels", [])
-
-    api_url_secondary = config.get("secondary_api", {}).get("url", "").rstrip('"')
-    api_token_secondary = config.get("secondary_api", {}).get("token")
-    excluded_channels_secondary = config.get("secondary_api", {}).get("excluded_channels", [])
-
-    logger.debug(f"Primary API URL: {api_url_primary}, Token present: {'Yes' if api_token_primary else 'No'}")
-    logger.debug(f"Secondary API URL: {api_url_secondary}, Token present: {'Yes' if api_token_secondary else 'No'}")
-
-    # Extraer información del canal
-    channel_id = None
-    channel_name = None
-    try:
-        channel_parts = base_filename.split('_')
-        if len(channel_parts) > 0:
-            channel_id = int(channel_parts[0])
-            for channel in config["telegram_bot"]["channels"]:
-                if int(channel["id"]) == channel_id:
-                    channel_name = channel["name"]
-                    break
-    except (ValueError, IndexError) as e:
-        logger.warning(f"Error extracting channel info from {base_filename}: {e}")
-
-    # Preparar datos del evento
-    try:
-        # Asegurar que los timestamps son enteros válidos
-        start_timestamp = int(float(event_details["start_datetime"]))
-        end_timestamp = int(float(event_details.get("end_datetime", start_timestamp + 7200)))
-
-        description = []
-
-        if event_details.get("description"):
-            description_text = event_details["description"].strip()
-            description_text += "\n\n"
-            description.append(description_text)
-
-        data = {
-            "title": str(event_details.get("title", "")).strip(),
-            "description": "".join(description),  
-            "place_name": str(event_details.get("place_name", "")).strip(),
-            "place_address": str(event_details.get("place_address", "")).strip(),
-            "start_datetime": str(start_timestamp),
-            "end_datetime": str(end_timestamp),
-            "online": "false",
-            "multidate": str((end_timestamp - start_timestamp) > 86400).lower(),
-            "tags": [
-                "Generado automáticamente",
-                channel_name if channel_name else "CalGen"
-            ] + event_details.get("categories", [])
-        }
-
-        # Añadir geolocalización si está disponible
-        if "place_latitude" in event_details and "place_longitude" in event_details:
-            data["place_latitude"] = str(event_details["place_latitude"])
-            data["place_longitude"] = str(event_details["place_longitude"])
-
-        logger.debug(f"Prepared event data: {json.dumps(data, indent=2, ensure_ascii=False)}")
-
-        def prepare_files(image_path, data):
-            """Prepara los archivos para el envío multipart/form-data."""
-            try:
-                files = []
-                
-                # Agregar campos base como form-data
-                files.extend([
-                    ("title", (None, data["title"])),
-                    ("description", (None, data["description"])),
-                    ("place_name", (None, data["place_name"])),
-                    ("place_address", (None, data["place_address"])),
-                    ("start_datetime", (None, data["start_datetime"])),
-                    ("end_datetime", (None, data["end_datetime"])),
-                    ("online", (None, data["online"])),
-                    ("multidate", (None, data["multidate"]))
-                ])
-
-                # Agregar coordenadas si existen
-                if "place_latitude" in data and "place_longitude" in data:
-                    files.extend([
-                        ("place_latitude", (None, data["place_latitude"])),
-                        ("place_longitude", (None, data["place_longitude"]))
-                    ])
-
-                # Agregar tags como campos separados
-                for tag in data["tags"]:
-                    files.append(("tags", (None, str(tag))))
-
-                # Agregar imagen si existe
-                if image_path and Path(image_path).exists():
-                    try:
-                        image_bytes = compress_image(image_path)
-                        files.extend([
-                            ("image", ("image.jpg", image_bytes, "image/jpeg")),
-                            ("image_name", (None, "")),
-                            ("image_focalpoint", (None, "0,0"))
-                        ])
-                    except Exception as e:
-                        logger.error(f"Error processing image {image_path}: {e}")
-
-                return files
-
-            except Exception as e:
-                logger.error(f"Error preparing files: {e}", exc_info=True)
-                return None
-
-        def post_event(api_url, headers, files):
-            """Envía el evento a una API específica con reintentos."""
-            if not files:
-                logger.error("No files prepared for sending")
-                return False
-
-            retries = 0
-            while retries < max_retries:
+def process_events_batch(config, events, db_manager):
+    """
+    Procesa un lote de eventos respetando los límites de la API.
+    Máximo 6 eventos cada 5 minutos.
+    """
+    MAX_BATCH_SIZE = 5  # Dejamos uno de margen del límite de 6
+    WAIT_TIME = 60      # 60 segundos entre eventos
+    
+    logger.info(f"Iniciando procesamiento de {len(events)} eventos")
+    
+    # Procesar en lotes
+    for i in range(0, len(events), MAX_BATCH_SIZE):
+        batch = events[i:i + MAX_BATCH_SIZE]
+        logger.info(f"Procesando lote {i//MAX_BATCH_SIZE + 1}, {len(batch)} eventos")
+        
+        for event_details in batch:
+            base_filename = event_details.get('base_filename', '')
+            event_id = f"{event_details['title']}_{event_details['start_datetime']}_{event_details['place_name']}"
+            
+            if not db_manager.is_event_sent(event_id):
                 try:
-                    logger.info(f"Sending event to {api_url} (Attempt {retries + 1}/{max_retries})")
+                    image_path = f"{config['directories']['images']}/{base_filename}.jpg"
+                    success = send_event(config, event_details, base_filename, image_path)
                     
-                    response = requests.post(
-                        api_url,
-                        files=files,
-                        headers=headers if headers else {},
-                        timeout=30
-                    )
-                    
-                    if response.status_code == 200:
-                        logger.info(f"Successfully sent event: {data['title']}")
-                        return True
+                    if success:
+                        db_manager.mark_event_as_sent(event_id)
+                        logger.info(f"Evento enviado y marcado: {event_id}")
                     else:
-                        logger.error(f"Error {response.status_code} sending event to {api_url}")
-                        logger.error(f"Response: {response.text}")
-                        
-                        if response.status_code == 400:
-                            logger.error("Bad Request. Form data being sent:")
-                            for field in files:
-                                if field[0] == "image":
-                                    logger.error(f"Field: {field[0]}, Type: image/jpeg")
-                                else:
-                                    logger.error(f"Field: {field[0]}, Value: {field[1][1]}")
-                            break
-                        elif response.status_code == 429:
-                            wait_time = 2 ** retries
-                            logger.warning(f"Rate limited. Waiting {wait_time} seconds...")
-                            sleep(wait_time)
-                            retries += 1
-                            continue
-                        break
-
-                except requests.exceptions.Timeout:
-                    logger.error("Request timed out")
-                    retries += 1
-                except requests.exceptions.RequestException as e:
-                    logger.error(f"Request error: {e}")
-                    retries += 1
+                        logger.warning(f"Fallo al enviar evento: {event_id}")
+                    
+                    # Esperar entre eventos del mismo lote
+                    time.sleep(WAIT_TIME)
+                    
                 except Exception as e:
-                    logger.error(f"Unexpected error: {e}", exc_info=True)
-                    break
+                    logger.error(f"Error procesando evento {event_id}: {e}")
+            else:
+                logger.info(f"Evento ya enviado anteriormente: {event_id}")
+        
+        # Si hay más lotes por procesar, esperar 5 minutos antes del siguiente
+        if i + MAX_BATCH_SIZE < len(events):
+            wait_time = 300  # 5 minutos
+            logger.info(f"Esperando {wait_time} segundos antes del siguiente lote...")
+            time.sleep(wait_time)
 
-                if retries < max_retries:
-                    sleep(2 ** retries)
-                    continue
+def prepare_files(image_path, data):
+    """Prepara los archivos para el envío multipart/form-data."""
+    try:
+        files = []
+        
+        # Agregar campos base como form-data
+        for key, value in data.items():
+            if key != "tags":
+                files.append((key, (None, str(value))))
 
-            return False
+        # Agregar tags como campos separados
+        for tag in data["tags"]:
+            files.append(("tags", (None, str(tag))))
 
-        # Envío a API primaria
-        primary_success = False
-        if channel_id not in excluded_channels_primary:
-            headers_primary = {"Authorization": f"Bearer {api_token_primary}"} if api_token_primary else None
-            files = prepare_files(image_path, data)
-            primary_success = post_event(api_url_primary, headers_primary, files)
-        else:
-            logger.info(f"Channel {channel_id} ({channel_name}) excluded from primary API")
+        # Agregar coordenadas si existen
+        if "place_latitude" in data and "place_longitude" in data:
+            files.extend([
+                ("place_latitude", (None, str(data["place_latitude"]))),
+                ("place_longitude", (None, str(data["place_longitude"])))
+            ])
 
-        # Envío a API secundaria
-        secondary_success = False
-        if api_url_secondary and channel_id not in excluded_channels_secondary:
-            headers_secondary = {"Authorization": f"Bearer {api_token_secondary}"} if api_token_secondary else None
-            files = prepare_files(image_path, data)
-            secondary_success = post_event(api_url_secondary, headers_secondary, files)
-        else:
-            logger.info(f"Channel {channel_id} ({channel_name}) excluded from secondary API")
+        # Agregar imagen si existe
+        if image_path and Path(image_path).exists():
+            try:
+                image_bytes = compress_image(image_path)
+                files.extend([
+                    ("image", ("image.jpg", image_bytes, "image/jpeg")),
+                    ("image_name", (None, "")),
+                    ("image_focalpoint", (None, "0,0"))
+                ])
+            except Exception as e:
+                logger.error(f"Error procesando imagen {image_path}: {e}")
 
-        return primary_success, secondary_success
+        return files
 
     except Exception as e:
-        logger.error(f"Error in send_event: {e}", exc_info=True)
-        return False, False
+        logger.error(f"Error preparando archivos: {e}")
+        return None
+
+def send_event(config, event_details, base_filename, image_path=None, max_retries=3):
+    """Envía un evento a la API con manejo de rate limit."""
+    api_url = config["gancio_api"]["url"].rstrip('"')
+    api_token = config["gancio_api"].get("token")
+    
+    def handle_rate_limit(retry_count):
+        """Maneja el rate limit con espera exponencial"""
+        wait_time = min(300, 60 * (2 ** retry_count))
+        logger.warning(f"Rate limit alcanzado. Esperando {wait_time} segundos...")
+        time.sleep(wait_time)
+
+    try:
+        # Preparar datos del evento
+        data = {
+            "title": str(event_details.get("title", "")).strip(),
+            "description": event_details.get("description", ""),
+            "place_name": str(event_details.get("place_name", "")).strip(),
+            "place_address": str(event_details.get("place_address", "")).strip(),
+            "start_datetime": str(event_details.get("start_datetime")),
+            "end_datetime": str(event_details.get("end_datetime", "")),
+            "online": "false",
+            "multidate": str(event_details.get("multidate", False)).lower(),
+            "tags": event_details.get("tags", ["Generado automáticamente"])
+        }
+
+        # Añadir coordenadas si existen
+        if "place_latitude" in event_details and "place_longitude" in event_details:
+            data["place_latitude"] = event_details["place_latitude"]
+            data["place_longitude"] = event_details["place_longitude"]
+
+        files = prepare_files(image_path, data)
+        if not files:
+            return False
+
+        headers = {"Authorization": f"Bearer {api_token}"} if api_token else {}
+        
+        for retry in range(max_retries):
+            try:
+                response = requests.post(
+                    api_url,
+                    files=files,
+                    headers=headers,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"Evento enviado exitosamente: {data['title']}")
+                    return True
+                elif response.status_code == 429:
+                    if retry < max_retries - 1:
+                        handle_rate_limit(retry)
+                        continue
+                    logger.error("Se alcanzó el límite de reintentos por rate limit")
+                    return False
+                else:
+                    logger.error(f"Error {response.status_code}: {response.text}")
+                    return False
+                    
+            except requests.exceptions.Timeout:
+                logger.error("Timeout en la petición")
+                if retry < max_retries - 1:
+                    time.sleep(30)
+                    continue
+            except Exception as e:
+                logger.error(f"Error inesperado: {e}")
+                return False
+
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error en send_event: {e}", exc_info=True)
+        return False
