@@ -1,12 +1,11 @@
-import time
 import imghdr
 import io
 import json
 import logging
 import os
-from datetime import date, datetime, time
+from datetime import date, datetime
 from pathlib import Path
-from time import sleep
+import time
 
 import pytz
 import requests

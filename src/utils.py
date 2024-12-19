@@ -51,40 +51,34 @@ def setup_logging(config, log_name=None):
     return logger
 
 
-def get_image_hash(image_path, hash_size=16):
+def get_image_hash(image_path, hash_size=32):
     with Image.open(image_path) as img:
         img = img.convert("L").resize((hash_size + 1, hash_size), Image.LANCZOS)
         pixels = np.array(img)
         diff = pixels[:, 1:] > pixels[:, :-1]
-        return "".join(
-            [
-                "1" if diff[i // hash_size][i % hash_size] else "0"
-                for i in range(hash_size * hash_size)
-            ]
-        )
+        return "".join(["1" if diff[i // hash_size][i % hash_size] else "0" 
+                       for i in range(hash_size * hash_size)])
 
-
-def are_images_similar(hash1, hash2, threshold=4):
+def are_images_similar(hash1, hash2, threshold=8):
     if len(hash1) != len(hash2):
         return False, len(hash1)
     distance = sum(c1 != c2 for c1, c2 in zip(hash1, hash2))
     return distance <= threshold, distance
 
-def compare_image_regions(img1_path, img2_path, grid_size=3):
+def compare_image_regions(img1_path, img2_path, grid_size=3, threshold=30):
     with Image.open(img1_path) as img1, Image.open(img2_path) as img2:
         img1 = img1.convert("L")
         img2 = img2.convert("L")
         
-        width1, height1 = img1.size
-        width2, height2 = img2.size
+        if img1.size != img2.size:
+            img2 = img2.resize(img1.size, Image.LANCZOS)
         
-        if width1 != width2 or height1 != height2:
-            img2 = img2.resize((width1, height1), Image.LANCZOS)
-        
-        region_width = width1 // grid_size
-        region_height = height1 // grid_size
+        width, height = img1.size
+        region_width = width // grid_size
+        region_height = height // grid_size
         
         differences = []
+        total_diff = 0
         
         for i in range(grid_size):
             for j in range(grid_size):
@@ -97,10 +91,85 @@ def compare_image_regions(img1_path, img2_path, grid_size=3):
                 region2 = np.array(img2.crop((x1, y1, x2, y2)))
                 
                 diff = np.mean(np.abs(region1 - region2))
-                if diff > 20:  # umbral para diferencias significativas
+                total_diff += diff
+                
+                if diff > threshold:
                     differences.append((i, j, diff))
         
+        avg_diff = total_diff / (grid_size * grid_size)
+        if avg_diff > threshold * 0.7:
+            return [(i, j, avg_diff) for i in range(grid_size) for j in range(grid_size)]
+            
         return differences
+
+def check_duplicate(img_path, processed_hashes, processed_files, config):
+    duplicate_config = config.get("duplicate_detection", {})
+    hash_size = duplicate_config.get("hash_size", 32)
+    similarity_threshold = duplicate_config.get("similarity_threshold", 8)
+    region_threshold = duplicate_config.get("region_threshold", 30)
+    grid_size = duplicate_config.get("grid_size", 3)
+    min_differences = duplicate_config.get("min_differences", 2)
+    
+    image_hash = get_image_hash(img_path, hash_size=hash_size)
+    
+    # Primero verificar contra los archivos procesados en esta sesión
+    for processed_file in processed_files:
+        if str(processed_file) != str(img_path):  # Evitar comparar con sí mismo
+            processed_hash = get_image_hash(processed_file, hash_size=hash_size)
+            similar, distance = are_images_similar(image_hash, processed_hash, similarity_threshold)
+            
+            if similar:
+                try:
+                    differences = compare_image_regions(
+                        img_path, 
+                        processed_file,
+                        grid_size=grid_size,
+                        threshold=region_threshold
+                    )
+                    
+                    if not differences:
+                        logger.info(f"Imagen {img_path} es duplicado exacto de {processed_file}")
+                        logger.info(f"Distancia de hash: {distance}")
+                        return True, processed_file
+                    
+                    if len(differences) <= min_differences:
+                        logger.info(f"Imagen {img_path} es similar a {processed_file}")
+                        logger.info(f"Diferencias encontradas en {len(differences)} regiones")
+                        logger.debug(f"Detalles de diferencias: {differences}")
+                        return True, processed_file
+                        
+                except Exception as e:
+                    logger.error(f"Error comparando regiones entre {img_path} y {processed_file}: {e}")
+                    continue
+    
+    # Luego verificar contra los hashes almacenados previamente
+    for processed_path, stored_hash in processed_hashes.items():
+        similar, distance = are_images_similar(image_hash, stored_hash, similarity_threshold)
+        if similar and Path(processed_path).exists():
+            try:
+                differences = compare_image_regions(
+                    img_path, 
+                    processed_path,
+                    grid_size=grid_size,
+                    threshold=region_threshold
+                )
+                
+                if not differences:
+                    logger.info(f"Imagen {img_path} es duplicado exacto (almacenado) de {processed_path}")
+                    logger.info(f"Distancia de hash: {distance}")
+                    return True, processed_path
+                
+                if len(differences) <= min_differences:
+                    logger.info(f"Imagen {img_path} es similar (almacenado) a {processed_path}")
+                    logger.info(f"Diferencias encontradas en {len(differences)} regiones")
+                    logger.debug(f"Detalles de diferencias: {differences}")
+                    return True, processed_path
+                    
+            except Exception as e:
+                logger.error(f"Error comparando regiones entre {img_path} y {processed_path}: {e}")
+                continue
+    
+    return False, None
 
 class GooglePlacesService:
     def __init__(self, api_key):

@@ -104,24 +104,18 @@ async def main():
     processed_hashes = {}
 
     for img_file in new_image_files:
-        image_hash = get_image_hash(img_file)
+        image_hash = get_image_hash(
+            img_file, 
+            hash_size=config.get("duplicate_detection", {}).get("hash_size", 32)
+        )
 
-        # Verificar duplicados con mayor precisión
-        is_duplicate = False
-        for processed_file, processed_hash in processed_hashes.items():
-            similar, distance = are_images_similar(image_hash, processed_hash)
-            if similar:
-                # Verificar diferencias por regiones
-                region_differences = compare_image_regions(img_file, processed_file)
-                
-                if any(diff[2] > 20 for diff in region_differences):
-                    logger.info(f"Imagen {img_file.name} tiene cambios significativos respecto a {processed_file}")
-                    logger.info(f"Diferencias encontradas en regiones: {region_differences}")
-                    is_duplicate = False
-                else:
-                    logger.info(f"Imagen {img_file.name} es duplicado de {processed_file}. Distancia: {distance}")
-                    is_duplicate = True
-                    break
+        # Verificar duplicados usando la configuración
+        is_duplicate, matching_file = check_duplicate(
+            img_file,
+            processed_hashes,
+            new_image_files,
+            config
+        )
 
         if is_duplicate:
             logger.info(f"Saltando imagen duplicada: {img_file.name}")
@@ -136,8 +130,8 @@ async def main():
         # Guardar el hash con información adicional
         similarity_info = {
             "processed_date": datetime.now().isoformat(),
-            "hash_size": 16,
-            "threshold": 4
+            "hash_size": config.get("duplicate_detection", {}).get("hash_size", 32),
+            "threshold": config.get("duplicate_detection", {}).get("similarity_threshold", 8)
         }
         db_manager.add_image_hash_with_info(img_file.name, image_hash, similarity_info)
 
