@@ -38,7 +38,12 @@ class DatabaseManager:
             ("event_titles", "title TEXT PRIMARY KEY"),
             ("events", "id TEXT PRIMARY KEY, summary TEXT, dtstart TEXT, location TEXT"),
             ("sent_events", "event_id TEXT PRIMARY KEY"),
-            ("image_hashes", "image_name TEXT PRIMARY KEY, hash TEXT NOT NULL")
+            ("image_hashes", """
+                image_name TEXT PRIMARY KEY, 
+                hash TEXT NOT NULL,
+                similarity_info TEXT,
+                processed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            """)
         ]
 
         with self.transaction():
@@ -49,28 +54,37 @@ class DatabaseManager:
                     )
                 """)
 
+    # Añadir este nuevo método:
     def migrate_database(self):
         try:
             with self.transaction():
-                self.cursor.execute("PRAGMA table_info(events)")
+                self.cursor.execute("PRAGMA table_info(image_hashes)")
                 columns = {column[1] for column in self.cursor.fetchall()}
-
-                expected_columns = {"id", "summary", "dtstart", "location"}
-                if columns != expected_columns:
-                    self.cursor.execute("DROP TABLE IF EXISTS events")
+                
+                if 'similarity_info' not in columns:
+                    logger.info("Iniciando migración de la tabla image_hashes")
+                    
                     self.cursor.execute("""
-                        CREATE TABLE events (
-                            id TEXT PRIMARY KEY,
-                            summary TEXT,
-                            dtstart TEXT,
-                            location TEXT
+                        CREATE TABLE IF NOT EXISTS image_hashes_new (
+                            image_name TEXT PRIMARY KEY,
+                            hash TEXT NOT NULL,
+                            similarity_info TEXT,
+                            processed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         )
                     """)
-                    logger.info("Events table recreated during migration")
+                    
+                    self.cursor.execute("""
+                        INSERT INTO image_hashes_new (image_name, hash)
+                        SELECT image_name, hash FROM image_hashes
+                    """)
+                    
+                    self.cursor.execute("DROP TABLE IF EXISTS image_hashes")
+                    self.cursor.execute("ALTER TABLE image_hashes_new RENAME TO image_hashes")
+                    
+                    logger.info("Migración completada exitosamente")
 
-            logger.info("Database migration completed successfully")
         except sqlite3.Error as e:
-            logger.error(f"Error during database migration: {e}")
+            logger.error(f"Error durante la migración de la base de datos: {e}")
             raise
 
     def add_image_hash(self, image_name, image_hash):
@@ -79,6 +93,14 @@ class DatabaseManager:
                 "INSERT OR REPLACE INTO image_hashes (image_name, hash) VALUES (?, ?)",
                 (image_name, image_hash)
             )
+
+    def add_image_hash_with_info(self, image_name, image_hash, similarity_info=None):
+        with self.transaction():
+            self.cursor.execute("""
+                INSERT OR REPLACE INTO image_hashes 
+                (image_name, hash, similarity_info) 
+                VALUES (?, ?, ?)
+            """, (image_name, image_hash, json.dumps(similarity_info) if similarity_info else None))
 
     def is_hash_processed(self, image_hash):
         try:

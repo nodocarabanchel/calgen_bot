@@ -51,12 +51,11 @@ def setup_logging(config, log_name=None):
     return logger
 
 
-def get_image_hash(image_path, hash_size=8):
+def get_image_hash(image_path, hash_size=16):
     with Image.open(image_path) as img:
         img = img.convert("L").resize((hash_size + 1, hash_size), Image.LANCZOS)
         pixels = np.array(img)
         diff = pixels[:, 1:] > pixels[:, :-1]
-        # Convertir el hash a una cadena binaria
         return "".join(
             [
                 "1" if diff[i // hash_size][i % hash_size] else "0"
@@ -65,12 +64,43 @@ def get_image_hash(image_path, hash_size=8):
         )
 
 
-def are_images_similar(hash1, hash2, threshold=10):
+def are_images_similar(hash1, hash2, threshold=4):
     if len(hash1) != len(hash2):
         return False, len(hash1)
     distance = sum(c1 != c2 for c1, c2 in zip(hash1, hash2))
     return distance <= threshold, distance
 
+def compare_image_regions(img1_path, img2_path, grid_size=3):
+    with Image.open(img1_path) as img1, Image.open(img2_path) as img2:
+        img1 = img1.convert("L")
+        img2 = img2.convert("L")
+        
+        width1, height1 = img1.size
+        width2, height2 = img2.size
+        
+        if width1 != width2 or height1 != height2:
+            img2 = img2.resize((width1, height1), Image.LANCZOS)
+        
+        region_width = width1 // grid_size
+        region_height = height1 // grid_size
+        
+        differences = []
+        
+        for i in range(grid_size):
+            for j in range(grid_size):
+                x1 = j * region_width
+                y1 = i * region_height
+                x2 = x1 + region_width
+                y2 = y1 + region_height
+                
+                region1 = np.array(img1.crop((x1, y1, x2, y2)))
+                region2 = np.array(img2.crop((x1, y1, x2, y2)))
+                
+                diff = np.mean(np.abs(region1 - region2))
+                if diff > 20:  # umbral para diferencias significativas
+                    differences.append((i, j, diff))
+        
+        return differences
 
 class GooglePlacesService:
     def __init__(self, api_key):
@@ -230,14 +260,6 @@ class GooglePlacesService:
                 categories.append(neighborhood)
             if locality and locality not in categories:
                 categories.append(locality)
-            
-            # Si después de todo no tenemos categorías, intentar con el tipo de lugar
-            if not categories and "types" in result:
-                relevant_types = [t for t in result["types"] 
-                                if t not in ["point_of_interest", "establishment", 
-                                           "street_address", "premise", "route"]]
-                if relevant_types:
-                    categories.extend(relevant_types)
 
         return {
             "latitude": location["lat"],
