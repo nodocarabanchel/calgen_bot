@@ -13,7 +13,7 @@ from groq import Groq
 from ics.grammar.parse import ContentLine
 
 from ics import Calendar, Event
-from utils import get_next_valid_date, setup_logging
+from utils import get_next_valid_date, setup_logging, get_geolocation
 
 logger = logging.getLogger(__name__)
 
@@ -256,18 +256,13 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                 # Validar y corregir JSON
                 validated_event_data_list = self.validate_and_fix_json(json.dumps(event_data_list))
 
-                    # Añadimos la descripción del mensaje de Telegram directamente
-                for event_data in validated_event_data_list:
-                    if metadata and metadata.get("text"):
-                        event_data["DESCRIPTION"] = metadata["text"]  # Texto original del mensaje de Telegram
-
                 # If the validated JSON is a single object, convert it to a list
                 if isinstance(validated_event_data_list, dict):
                     validated_event_data_list = [validated_event_data_list]
 
                 # Process and return all valid events
                 for event_data in validated_event_data_list:
-                    # Perform the same date-time adjustments as before
+                    # Procesar fechas
                     current_date = datetime.now(pytz.timezone("Europe/Madrid"))
                     start_str = event_data.get("DTSTART")
                     if start_str:
@@ -295,6 +290,7 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
 
                     event_data["DTSTART"] = start_date_time
 
+                    # Procesar fecha de fin
                     end_str = event_data.get("DTEND")
                     if end_str:
                         if "T" in end_str:
@@ -316,14 +312,39 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                             "No se proporcionó fecha/hora de finalización. El evento no tendrá hora de finalización."
                         )
 
-                    if metadata:
-                        # Obtener categorías de ubicación si existen
-                        location_categories = metadata.get("location_data", {}).get("categories", [])
-                        
-                        event_data["tags"] = [
-                            metadata.get("channel_name", "Canal Desconocido"),
-                            metadata.get("source", "Fuente Desconocida")
-                        ] + location_categories 
+                    # Procesar ubicación y geolocalización
+                    if event_data.get("LOCATION"):
+                        logger.info(f"Processing location: {event_data['LOCATION']}")
+                        location_info = get_geolocation(self.config, event_data["LOCATION"])
+                        if location_info:
+                            logger.info(f"Geolocation found: {location_info}")
+                            
+                            # Añadir coordenadas
+                            if 'latitude' in location_info and 'longitude' in location_info:
+                                event_data["place_latitude"] = location_info["latitude"]
+                                event_data["place_longitude"] = location_info["longitude"]
+                            
+                            # Inicializar tags con las categorías base
+                            base_tags = []
+                            if metadata:
+                                base_tags = [
+                                    metadata.get("channel_name", "Canal Desconocido"),
+                                    metadata.get("source", "Fuente Desconocido")
+                                ]
+                            
+                            # Añadir categorías de ubicación a los tags
+                            categories = location_info.get("categories", [])
+                            logger.info(f"Location categories: {categories}")
+                            
+                            event_data["tags"] = base_tags + categories
+                            logger.info(f"Final tags for event: {event_data['tags']}")
+                        else:
+                            logger.warning(f"No geolocation info found for: {event_data['LOCATION']}")
+                            event_data["tags"] = base_tags if 'base_tags' in locals() else []
+
+                    # Añadir descripción del mensaje de Telegram
+                    if metadata and metadata.get("text"):
+                        event_data["DESCRIPTION"] = metadata["text"]
 
                 logger.info(f"Datos del evento extraídos: {validated_event_data_list}")
                 return validated_event_data_list

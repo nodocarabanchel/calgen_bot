@@ -22,7 +22,8 @@ from utils import (
     load_config,
     setup_logging,
     get_next_valid_date,
-    compare_image_regions
+    compare_image_regions,
+    check_duplicate
 )
 
 
@@ -118,7 +119,8 @@ async def main():
         )
 
         if is_duplicate:
-            logger.info(f"Saltando imagen duplicada: {img_file.name}")
+            matching_name = matching_file.name if isinstance(matching_file, Path) else str(matching_file)
+            logger.info(f"Saltando imagen duplicada: {img_file.name} (duplicada de: {matching_name})")
             continue
         elif db_manager.is_hash_processed(image_hash):
             logger.info(f"Hash ya procesado: {img_file.name}")

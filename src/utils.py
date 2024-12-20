@@ -211,7 +211,7 @@ class GooglePlacesService:
         
         center_lat = 40.4168
         center_lng = -3.7038
-        radius = 50000  # 50km para cubrir toda la Comunidad de Madrid
+        radius = 70000  # 70km para cubrir toda la Comunidad de Madrid
 
         # Intento 1: Buscar como establecimiento
         try:
@@ -379,7 +379,11 @@ class GeocodingService:
 
 
 def get_geolocation(config, address):
+    """
+    Obtiene la geolocalización y categorías para una dirección.
+    """
     service = config.get("geocoding_service", "opencage").lower()
+    logger.info(f"Getting geolocation for address: {address} using service: {service}")
     
     if service == "opencage":
         geocoding_service = GeocodingService(api_key=config["opencage_api"]["key"])
@@ -388,10 +392,27 @@ def get_geolocation(config, address):
         google_places_service = GooglePlacesService(api_key=config["google_maps_api"]["key"])
         location = google_places_service.geocode(address)
     else:
-        logging.error(f"Unknown geocoding service: {service}")
+        logger.error(f"Unknown geocoding service: {service}")
         return None
     
-    return location
+    if location:
+        logger.info(f"Location found: {location}")
+        logger.info(f"Categories found: {location.get('categories', [])}")
+        
+        # Si no hay categorías, intentar extraerlas de la dirección formateada
+        if not location.get('categories'):
+            location['categories'] = []
+            if 'formatted' in location:
+                parts = location['formatted'].split(',')
+                if len(parts) >= 2:
+                    possible_district = parts[0].strip()
+                    if possible_district not in ['Madrid', 'Comunidad de Madrid']:
+                        location['categories'].append(possible_district)
+        
+        return location
+    else:
+        logger.warning(f"No location found for address: {address}")
+        return None
 
 
 
