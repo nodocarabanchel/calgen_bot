@@ -255,11 +255,10 @@ async def main():
                         channel_name = channel['name']
                         break
             
+            existing_tags = event.get('categories', [])
+            event['tags'] = existing_tags + ["Generado automáticamente"]
             if channel_name:
-                event['tags'] = [
-                    channel_name,
-                    "Generado automáticamente via CalGen Bot"
-                ]
+                event['tags'].insert(0, channel_name)
             
             # Preparar ID del evento
             event_id = f"{channel_name+'_' if channel_name else ''}{event['title']}_{event['start_datetime']}_{event['place_name']}"
