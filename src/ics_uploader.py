@@ -160,10 +160,10 @@ def prepare_files(image_path, data):
     """Prepara los archivos para el envío multipart/form-data.
     
     Maneja los tipos de datos según la especificación de Gancio:
-    - place_latitude: float
-    - place_longitude: float
-    - multidate: boolean
-    - online: boolean
+    - place_latitude: float (enviado como string con precisión completa)
+    - place_longitude: float (enviado como string con precisión completa)
+    - multidate: boolean (enviado como "true" o "false")
+    - online: boolean (enviado como "true" o "false")
     - tags: array de strings
     - resto de campos: strings
     """
@@ -181,8 +181,8 @@ def prepare_files(image_path, data):
                 continue  # Los tags se manejan por separado
             
             if key in float_fields:
-                # Mantener como float, sin convertir a string
-                files.append((key, (None, value)))
+                # Convertir float a string manteniendo la precisión completa
+                files.append((key, (None, f"{value}")))
             elif key in bool_fields:
                 # Asegurar que los booleanos son "true" o "false" en minúsculas
                 files.append((key, (None, str(value).lower())))
