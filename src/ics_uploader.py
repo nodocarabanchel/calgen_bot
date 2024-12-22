@@ -157,25 +157,43 @@ def process_events_batch(config, events, db_manager):
             time.sleep(wait_time)
 
 def prepare_files(image_path, data):
-    """Prepara los archivos para el envío multipart/form-data."""
+    """Prepara los archivos para el envío multipart/form-data.
+    
+    Maneja los tipos de datos según la especificación de Gancio:
+    - place_latitude: float
+    - place_longitude: float
+    - multidate: boolean
+    - online: boolean
+    - tags: array de strings
+    - resto de campos: strings
+    """
     try:
         files = []
         
+        # Definir campos que necesitan tipos específicos
+        float_fields = ["place_latitude", "place_longitude"]
+        bool_fields = ["multidate", "online"]
+        array_fields = ["tags"]
+        
         # Agregar campos base como form-data
         for key, value in data.items():
-            if key != "tags":
+            if key in array_fields:
+                continue  # Los tags se manejan por separado
+            
+            if key in float_fields:
+                # Mantener como float, sin convertir a string
+                files.append((key, (None, value)))
+            elif key in bool_fields:
+                # Asegurar que los booleanos son "true" o "false" en minúsculas
+                files.append((key, (None, str(value).lower())))
+            else:
+                # El resto de campos van como strings
                 files.append((key, (None, str(value))))
 
         # Agregar tags como campos separados
-        for tag in data["tags"]:
-            files.append(("tags", (None, str(tag))))
-
-        # Agregar coordenadas si existen
-        if "place_latitude" in data and "place_longitude" in data:
-            files.extend([
-                ("place_latitude", (None, str(data["place_latitude"]))),
-                ("place_longitude", (None, str(data["place_longitude"])))
-            ])
+        if "tags" in data:
+            for tag in data["tags"]:
+                files.append(("tags", (None, str(tag))))
 
         # Agregar imagen si existe
         if image_path and Path(image_path).exists():
