@@ -31,64 +31,18 @@ def extract_event_details_from_ics(ics_file):
             for component in gcal.walk():
                 if component.name == "VEVENT":
                     try:
-                        start = component.get("DTSTART").dt
-                        end = component.get("DTEND").dt if component.get("DTEND") else None
+                        # Extraer información básica del evento
+                        event_details = _extract_basic_event_info(component)
+                        if not event_details:
+                            continue
 
-                        # Convertir date a datetime si es necesario
-                        if isinstance(start, date) and not isinstance(start, datetime):
-                            start = datetime.combine(start, time.min)
+                        # Procesar recurrencia si existe
+                        _process_recurrence(component, event_details)
 
-                        # Asegurar que las fechas están en UTC
-                        madrid_tz = pytz.timezone("Europe/Madrid")
-                        if start.tzinfo is None:
-                            start = madrid_tz.localize(start)
-                        start = start.astimezone(pytz.UTC)
-
-                        event_details = {
-                            "title": str(component.get("SUMMARY")),
-                            "description": str(component.get("DESCRIPTION", "")),
-                            "place_name": str(component.get("LOCATION")).split(",")[0],
-                            "place_address": str(component.get("LOCATION")),
-                            "start_datetime": int(start.timestamp()),
-                            "recurrent": None,
-                            "categories": [],
-                        }
-
-                        if end:
-                            if isinstance(end, date) and not isinstance(end, datetime):
-                                end = datetime.combine(end, time.max)
-                            if end.tzinfo is None:
-                                end = madrid_tz.localize(end)
-                            end = end.astimezone(pytz.UTC)
-                            event_details["end_datetime"] = int(end.timestamp())
-                            event_details["multidate"] = (end.date() - start.date()).days > 0
-                        else:
-                            event_details["multidate"] = False
-
-                        # Manejar eventos recurrentes
-                        recurrence = component.get("RRULE")
-                        if recurrence:
-                            rrule_string = vRecur.from_ical(recurrence).to_ical().decode()
-                            event_details["recurrent"] = parse_recurrence_rule(rrule_string)
-
-                            # Ajustar la fecha de inicio para eventos recurrentes
-                            current_date = datetime.now(pytz.UTC)
-                            adjusted_start = get_next_valid_date(start, rrule_string)
-                            next_occurrence = get_next_occurrence(rrule_string, adjusted_start, current_date)
-
-                            if next_occurrence:
-                                event_details["start_datetime"] = int(next_occurrence.timestamp())
-                                if end:
-                                    duration = end - start
-                                    event_details["end_datetime"] = int((next_occurrence + duration).timestamp())
-
-                        # Añadir geolocalización y categorías si están disponibles
-                        config = load_config()
-                        location = get_geolocation(config, event_details["place_address"])
-                        if location:
-                            event_details["place_latitude"] = location["latitude"]
-                            event_details["place_longitude"] = location["longitude"]
-                            event_details["categories"] = location["categories"]
+                        # Procesar ubicación y geolocalización
+                        if not _process_location(event_details):
+                            # Si la ubicación está fuera de Madrid, saltamos este evento
+                            continue
 
                         logger.info(f"Event details extracted: {event_details}")
                         events.append(event_details)
@@ -98,6 +52,98 @@ def extract_event_details_from_ics(ics_file):
     except Exception as e:
         logger.error(f"Failed to extract event details from ICS file: {e}", exc_info=True)
     return []
+
+def _extract_basic_event_info(component):
+    """Extrae la información básica del evento."""
+    try:
+        start = component.get("DTSTART").dt
+        end = component.get("DTEND").dt if component.get("DTEND") else None
+
+        # Convertir date a datetime si es necesario
+        if isinstance(start, date) and not isinstance(start, datetime):
+            start = datetime.combine(start, time.min)
+
+        # Asegurar que las fechas están en UTC
+        madrid_tz = pytz.timezone("Europe/Madrid")
+        if start.tzinfo is None:
+            start = madrid_tz.localize(start)
+        start = start.astimezone(pytz.UTC)
+
+        event_details = {
+            "title": str(component.get("SUMMARY")),
+            "description": str(component.get("DESCRIPTION", "")),
+            "place_name": str(component.get("LOCATION")).split(",")[0],
+            "place_address": str(component.get("LOCATION")),
+            "start_datetime": int(start.timestamp()),
+            "recurrent": None,
+            "categories": [],
+            "online": False
+        }
+
+        if end:
+            if isinstance(end, date) and not isinstance(end, datetime):
+                end = datetime.combine(end, time.max)
+            if end.tzinfo is None:
+                end = madrid_tz.localize(end)
+            end = end.astimezone(pytz.UTC)
+            event_details["end_datetime"] = int(end.timestamp())
+            event_details["multidate"] = (end.date() - start.date()).days > 0
+        else:
+            event_details["multidate"] = False
+
+        return event_details
+    except Exception as e:
+        logger.error(f"Error extracting basic event info: {e}")
+        return None
+
+def _process_recurrence(component, event_details):
+    """Procesa la información de recurrencia del evento."""
+    recurrence = component.get("RRULE")
+    if recurrence:
+        try:
+            rrule_string = vRecur.from_ical(recurrence).to_ical().decode()
+            event_details["recurrent"] = parse_recurrence_rule(rrule_string)
+
+            current_date = datetime.now(pytz.UTC)
+            start = datetime.fromtimestamp(event_details["start_datetime"], pytz.UTC)
+            adjusted_start = get_next_valid_date(start, rrule_string)
+            next_occurrence = get_next_occurrence(rrule_string, adjusted_start, current_date)
+
+            if next_occurrence:
+                event_details["start_datetime"] = int(next_occurrence.timestamp())
+                if "end_datetime" in event_details:
+                    duration = datetime.fromtimestamp(event_details["end_datetime"], pytz.UTC) - start
+                    event_details["end_datetime"] = int((next_occurrence + duration).timestamp())
+        except Exception as e:
+            logger.error(f"Error processing recurrence: {e}")
+
+def _process_location(event_details):
+    """
+    Procesa la ubicación del evento.
+    Retorna False si el evento debe ser descartado (fuera de Madrid).
+    """
+    try:
+        config = load_config()
+        location = get_geolocation(config, event_details["place_address"])
+        
+        if location is None:
+            # Si la ubicación no está en Madrid, indicamos que el evento debe ser descartado
+            logger.info(f"Skipping event outside Madrid: {event_details['title']}")
+            return False
+            
+        if location.get('is_online'):
+            # Si es online, marcamos el evento como tal y no añadimos coordenadas
+            event_details["online"] = True
+        else:
+            # Si es presencial en Madrid, añadimos las coordenadas
+            event_details["place_latitude"] = location["latitude"]
+            event_details["place_longitude"] = location["longitude"]
+            event_details["categories"] = location.get("categories", [])
+            
+        return True
+    except Exception as e:
+        logger.error(f"Error processing location: {e}")
+        return True  # En caso de error, permitimos que el evento continúe
 
 def compress_image(image_path, max_size_kb=500):
     """Compresses an image and returns it as bytes."""
@@ -175,7 +221,7 @@ def prepare_files(image_path, data):
         bool_fields = ["multidate", "online"]
         array_fields = ["tags"]
         
-        # Agregar campos base como form-data
+        # Agregar campos base como form-dataå©
         for key, value in data.items():
             if key in array_fields:
                 continue  # Los tags se manejan por separado
@@ -219,7 +265,6 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
     api_token = config["gancio_api"].get("token")
     
     def handle_rate_limit(retry_count):
-        """Maneja el rate limit con espera exponencial"""
         wait_time = min(300, 60 * (2 ** retry_count))
         logger.warning(f"Rate limit alcanzado. Esperando {wait_time} segundos...")
         time.sleep(wait_time)
@@ -233,15 +278,16 @@ def send_event(config, event_details, base_filename, image_path=None, max_retrie
             "place_address": str(event_details.get("place_address", "")).strip(),
             "start_datetime": str(event_details.get("start_datetime")),
             "end_datetime": str(event_details.get("end_datetime", "")),
-            "online": "false",
+            "online": str(event_details.get("online", False)).lower(),
             "multidate": str(event_details.get("multidate", False)).lower(),
             "tags": event_details.get("tags", ["Generado automáticamente"])
         }
 
-        # Añadir coordenadas si existen
-        if "place_latitude" in event_details and "place_longitude" in event_details:
-            data["place_latitude"] = event_details["place_latitude"]
-            data["place_longitude"] = event_details["place_longitude"]
+        # Añadir coordenadas solo si el evento no es online y están disponibles
+        if not event_details.get("online"):
+            if "place_latitude" in event_details and "place_longitude" in event_details:
+                data["place_latitude"] = event_details["place_latitude"]
+                data["place_longitude"] = event_details["place_longitude"]
 
         files = prepare_files(image_path, data)
         if not files:

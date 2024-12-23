@@ -381,9 +381,20 @@ class GeocodingService:
 def get_geolocation(config, address):
     """
     Obtiene la geolocalización y categorías para una dirección.
+    Retorna:
+    - None si la ubicación está fuera de la Comunidad de Madrid
+    - dict con is_online=True si es un evento online
+    - dict con datos de geolocalización si es un evento presencial en Madrid
     """
+    logger.info(f"Getting geolocation for address: {address}")
+    
+    # Verificar si es un evento online
+    online_keywords = ['online', 'zoom', 'virtual', 'teams', 'meet', 'skype', 'discord', 'jitsi']
+    if any(keyword.lower() in address.lower() for keyword in online_keywords):
+        logger.info(f"Detected online event: {address}")
+        return {"is_online": True}
+
     service = config.get("geocoding_service", "opencage").lower()
-    logger.info(f"Getting geolocation for address: {address} using service: {service}")
     
     if service == "opencage":
         geocoding_service = GeocodingService(api_key=config["opencage_api"]["key"])
@@ -396,23 +407,39 @@ def get_geolocation(config, address):
         return None
     
     if location:
-        logger.info(f"Location found: {location}")
-        logger.info(f"Categories found: {location.get('categories', [])}")
+        # Verificar coordenadas dentro del bounding box de la Comunidad de Madrid
+        lat = location.get('latitude')
+        lon = location.get('longitude')
         
-        # Si no hay categorías, intentar extraerlas de la dirección formateada
-        if not location.get('categories'):
-            location['categories'] = []
-            if 'formatted' in location:
-                parts = location['formatted'].split(',')
-                if len(parts) >= 2:
-                    possible_district = parts[0].strip()
-                    if possible_district not in ['Madrid', 'Comunidad de Madrid']:
-                        location['categories'].append(possible_district)
+        if lat and lon:
+            MADRID_BOUNDS = {
+                'min_lat': 39.8847,
+                'max_lat': 41.1665,
+                'min_lon': -4.5790,
+                'max_lon': -3.0527
+            }
+            
+            is_in_bounds = (MADRID_BOUNDS['min_lat'] <= lat <= MADRID_BOUNDS['max_lat'] and 
+                          MADRID_BOUNDS['min_lon'] <= lon <= MADRID_BOUNDS['max_lon'])
+            
+            if not is_in_bounds:
+                logger.info(f"Coordinates outside Madrid Community bounds: {lat}, {lon}")
+                return None
         
+        # Verificación secundaria de municipios
+        formatted_address = location.get('formatted', '').lower()
+        has_madrid_mention = ('madrid' in formatted_address or 
+                            any(municipality in formatted_address 
+                                for municipality in MADRID_MUNICIPALITIES))
+                                
+        if not has_madrid_mention:
+            logger.warning(f"Location in Madrid bounds but no municipality mentioned: {formatted_address}")
+            
+        location['is_online'] = False
         return location
-    else:
-        logger.warning(f"No location found for address: {address}")
-        return None
+    
+    logger.warning(f"No location found for address: {address}")
+    return None
 
 
 
