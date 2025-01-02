@@ -105,7 +105,7 @@ class EntityExtractor:
         self.config = config
         self.max_retries = 3
         self.client = None
-        
+
         # Verificar si se debe usar la API externa
         if config.get("external_api", {}).get("use"):
             if config["external_api"]["service"] == "groq":
@@ -117,24 +117,78 @@ class EntityExtractor:
                     logger.error(f"Error initializing Groq client: {str(e)}")
                     self.client = None
 
+    def process_event_date(self, date_str: str, current_date: datetime) -> datetime:
+        if not date_str:
+            return current_date
+
+        try:
+            # Caso 1: Si viene con año (YYYY-MM-DD[THH:MM:SS])
+            if len(date_str.split('-')) == 3:
+                return datetime.fromisoformat(date_str).replace(
+                    tzinfo=pytz.timezone("Europe/Madrid")
+                )
+                
+            # Caso 2: Solo hora (HH:MM)
+            if ":" in date_str and "-" not in date_str:
+                time_obj = datetime.strptime(date_str, "%H:%M").time()
+                date_time = current_date.replace(
+                    hour=time_obj.hour,
+                    minute=time_obj.minute,
+                    second=0,
+                    microsecond=0
+                )
+                
+                # Si la hora ya pasó hoy, asumimos que es para mañana
+                if date_time < current_date:
+                    date_time += timedelta(days=1)
+                    
+                return date_time
+                
+            # Caso 3: Fecha sin año (MM-DD)
+            if "-" in date_str and len(date_str.split('-')) == 2:
+                month, day = map(int, date_str.split('-'))
+                date_time = current_date.replace(
+                    month=month,
+                    day=day,
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0
+                )
+                
+                # Si la fecha ya pasó este año, la movemos al siguiente
+                if date_time < current_date:
+                    date_time = date_time.replace(year=current_date.year + 1)
+                
+                return date_time
+                
+        except ValueError as e:
+            logger.error(f"Error procesando fecha: {str(e)}")
+            return current_date
+            
+        return current_date
+
     def get_improved_prompt(self, text: str) -> str:
-        current_year = datetime.now().year
         return f"""Analiza el siguiente texto y extrae la información del evento principal en un formato JSON estructurado. Sigue estas reglas estrictamente:
 
-1. Utiliza el formato ISO 8601 para las fechas y horas (YYYY-MM-DDTHH:MM:SS) si se proporciona una fecha específica en el texto.
-2. Si no se especifica una fecha exacta pero hay una hora de inicio, utiliza el formato HH:MM para el campo DTSTART.
-3. Si no se proporciona un año específico, asume que el evento es para el año actual ({current_year}).
-4. Todas las fechas y horas deben estar en la zona horaria de España (Europe/Madrid).
-5. Para eventos recurrentes, proporciona una regla RRULE adecuada.
-6. NO inventes ni infieras fechas que no estén explícitamente mencionadas en el texto, excepto para el año actual cuando no se especifique.
-7. NO incluyas el campo DTEND si no se menciona explícitamente una hora o fecha de finalización.
+1. Para fechas y horas, usa estos formatos:
+   - Si se menciona un año específico: YYYY-MM-DDTHH:MM:SS
+   - Si no se menciona año: MM-DD
+   - Si solo hay hora: HH:MM
+2. Todas las fechas y horas deben estar en la zona horaria de España (Europe/Madrid).
+3. Para eventos recurrentes, proporciona una regla RRULE adecuada.
+4. NO inventes ni infieras fechas que no estén explícitamente mencionadas en el texto.
+5. NO incluyas el campo DTEND si no se menciona explícitamente una hora o fecha de finalización.
 
 Estructura JSON requerida:
 [
     {{
     "SUMMARY": "Título del evento",
-    "DTSTART": "YYYY-MM-DDTHH:MM:SS" o "HH:MM", // Usar HH:MM si solo se proporciona la hora
-    "DTEND": "YYYY-MM-DDTHH:MM:SS", // Omitir si no hay fecha/hora de fin específica
+    "DTSTART": formatos según el caso:
+        - Con año: "YYYY-MM-DDTHH:MM:SS"
+        - Sin año: "MM-DD"
+        - Solo hora: "HH:MM",
+    "DTEND": mismo formato que DTSTART (omitir si no se especifica),
     "LOCATION": "Ubicación del evento",
     "RRULE": "Regla de recurrencia en formato ICS estándar",
     "ALL_DAY": true/false
@@ -145,8 +199,6 @@ Reglas para RRULE:
 - Para eventos de un solo día: deja el campo vacío.
 - Para eventos recurrentes: proporciona la regla completa (ej: "FREQ=WEEKLY;BYDAY=WE")
 - NO incluyas fechas específicas en la RRULE a menos que estén explícitamente mencionadas en el texto.
-
-Asegúrate de que la RRULE sea coherente con la información proporcionada en el texto.
 
 Texto a analizar:
 
@@ -159,7 +211,6 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
             logger.warning(
                 "El cliente Groq no está inicializado. No se puede validar el JSON."
             )
-            # Devolver JSON parseado sin validación
             return json.loads(json_data)
 
         prompt = f"""
@@ -170,8 +221,11 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
         [
             {{
                 "SUMMARY": "Título del evento",
-                "DTSTART": "YYYY-MM-DDTHH:MM:SS" o "HH:MM",
-                "DTEND": "YYYY-MM-DDTHH:MM:SS" (opcional),
+                "DTSTART": formatos válidos:
+                    - "YYYY-MM-DDTHH:MM:SS" (si se menciona año)
+                    - "MM-DD" (si hay fecha sin año)
+                    - "HH:MM" (si solo hay hora),
+                "DTEND": igual que DTSTART (opcional),
                 "LOCATION": "Ubicación del evento",
                 "RRULE": "Regla de recurrencia en formato ICS estándar" (opcional),
                 "ALL_DAY": true/false
@@ -179,11 +233,12 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
         ]
 
         Reglas:
-        1. Usa ISO 8601 para fechas y horas (YYYY-MM-DDTHH:MM:SS).
-        2. Usa HH:MM para DTSTART si solo se proporciona la hora.
-        3. Omite DTEND si no se menciona explícitamente.
-        4. Asegúrate de que RRULE esté en el formato ICS correcto si está presente.
-        5. Elimina cualquier campo que no esté en la estructura especificada.
+        1. Si la fecha viene con año específico, usa formato completo: YYYY-MM-DDTHH:MM:SS
+        2. Si la fecha viene sin año, usa formato: MM-DD
+        3. Si solo hay hora, usa formato: HH:MM
+        4. Omite DTEND si no se menciona explícitamente
+        5. Asegúrate de que RRULE esté en el formato ICS correcto si está presente
+        6. Elimina cualquier campo que no esté en la estructura especificada
 
         Devuelve solo el JSON corregido, sin explicaciones.
         """
@@ -266,18 +321,7 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                     current_date = datetime.now(pytz.timezone("Europe/Madrid"))
                     start_str = event_data.get("DTSTART")
                     if start_str:
-                        if "T" in start_str:
-                            start_date_time = datetime.fromisoformat(start_str).replace(
-                                tzinfo=pytz.timezone("Europe/Madrid")
-                            )
-                        else:
-                            start_time = datetime.strptime(start_str, "%H:%M").time()
-                            start_date_time = current_date.replace(
-                                hour=start_time.hour,
-                                minute=start_time.minute,
-                                second=0,
-                                microsecond=0,
-                            )
+                        start_date_time = self.process_event_date(start_str, current_date)
                     else:
                         logger.warning(
                             "No se proporcionó fecha/hora de inicio. Usando la fecha/hora actual."
@@ -293,15 +337,7 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                     # Procesar fecha de fin
                     end_str = event_data.get("DTEND")
                     if end_str:
-                        if "T" in end_str:
-                            end_date_time = datetime.fromisoformat(end_str).replace(
-                                tzinfo=pytz.timezone("Europe/Madrid")
-                            )
-                        else:
-                            end_time = datetime.strptime(end_str, "%H:%M").time()
-                            end_date_time = start_date_time.replace(
-                                hour=end_time.hour, minute=end_time.minute
-                            )
+                        end_date_time = self.process_event_date(end_str, current_date)
 
                         if end_date_time <= start_date_time:
                             end_date_time += timedelta(days=1)
@@ -364,29 +400,6 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
             "No se pudo extraer la información completa del evento después del número máximo de intentos."
         )
         return []
-
-    def parse_datetime_or_time(self, date_str):
-        if not date_str:
-            return None
-
-        try:
-            # Intentar analizar como datetime completo
-            return datetime.fromisoformat(date_str).replace(
-                tzinfo=pytz.timezone("Europe/Madrid")
-            )
-        except ValueError:
-            try:
-                # Intentar analizar como solo hora
-                time_obj = datetime.strptime(date_str, "%H:%M").time()
-                # Usar la fecha actual con la hora dada
-                current_date = datetime.now(pytz.timezone("Europe/Madrid"))
-                return current_date.replace(
-                    hour=time_obj.hour, minute=time_obj.minute, second=0, microsecond=0
-                )
-            except ValueError:
-                # Si ambos intentos de análisis fallan, devolver None
-                logger.error(f"No se pudo analizar la fecha/hora: {date_str}")
-                return None
 
 
 class ICSExporter:
