@@ -103,6 +103,8 @@ def compare_image_regions(img1_path, img2_path, grid_size=3, threshold=30):
         return differences
 
 def check_duplicate(img_path, processed_hashes, processed_files, config):
+    logger.info(f"Verificando duplicados para: {img_path}")
+
     duplicate_config = config.get("duplicate_detection", {})
     hash_size = duplicate_config.get("hash_size", 32)
     similarity_threshold = duplicate_config.get("similarity_threshold", 8)
@@ -111,6 +113,7 @@ def check_duplicate(img_path, processed_hashes, processed_files, config):
     min_differences = duplicate_config.get("min_differences", 2)
     
     image_hash = get_image_hash(img_path, hash_size=hash_size)
+    logger.info(f"Hash generado para {img_path}")
     
     # Primero verificar contra los archivos procesados en esta sesión
     for processed_file in processed_files:
@@ -119,6 +122,7 @@ def check_duplicate(img_path, processed_hashes, processed_files, config):
             similar, distance = are_images_similar(image_hash, processed_hash, similarity_threshold)
             
             if similar:
+                logger.info(f"Hash similar encontrado con {processed_file} (distancia: {distance})")
                 try:
                     differences = compare_image_regions(
                         img_path, 
