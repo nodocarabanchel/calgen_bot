@@ -117,9 +117,9 @@ class EntityExtractor:
                     logger.error(f"Error initializing Groq client: {str(e)}")
                     self.client = None
 
-    def process_event_date(self, date_str: str, current_date: datetime) -> datetime:
+    def process_event_date(self, date_str: str, current_date: datetime) -> Optional[datetime]:
         if not date_str:
-            return current_date
+            return None
 
         try:
             # Caso 1: Si viene con año (YYYY-MM-DD[THH:MM:SS])
@@ -127,7 +127,7 @@ class EntityExtractor:
                 return datetime.fromisoformat(date_str).replace(
                     tzinfo=pytz.timezone("Europe/Madrid")
                 )
-                
+            
             # Caso 2: Solo hora (HH:MM)
             if ":" in date_str and "-" not in date_str:
                 time_obj = datetime.strptime(date_str, "%H:%M").time()
@@ -137,13 +137,11 @@ class EntityExtractor:
                     second=0,
                     microsecond=0
                 )
-                
                 # Si la hora ya pasó hoy, asumimos que es para mañana
                 if date_time < current_date:
                     date_time += timedelta(days=1)
-                    
                 return date_time
-                
+            
             # Caso 3: Fecha sin año (MM-DD)
             if "-" in date_str and len(date_str.split('-')) == 2:
                 month, day = map(int, date_str.split('-'))
@@ -155,18 +153,23 @@ class EntityExtractor:
                     second=0,
                     microsecond=0
                 )
-                
-                # Si la fecha ya pasó este año, la movemos al siguiente
+
+                # Si la fecha ya pasó este año
                 if date_time < current_date:
-                    date_time = date_time.replace(year=current_date.year + 1)
-                
+                    # Si estamos en noviembre o diciembre, mover al próximo año
+                    if current_date.month in [11, 12]:
+                        date_time = date_time.replace(year=current_date.year + 1)
+                    else:
+                        # Evento pasado fuera de noviembre/diciembre -> ignorar
+                        logger.warning(f"Evento pasado ignorado: {date_str}")
+                        return None
                 return date_time
-                
+
         except ValueError as e:
             logger.error(f"Error procesando fecha: {str(e)}")
-            return current_date
-            
-        return current_date
+            return None
+
+        return None
 
     def get_improved_prompt(self, text: str) -> str:
         return f"""Analiza el siguiente texto y extrae la información del evento principal en un formato JSON estructurado. Sigue estas reglas estrictamente:
