@@ -200,6 +200,9 @@ class EntityExtractor:
 3. Para eventos recurrentes, proporciona una regla RRULE adecuada.
 4. NO inventes ni infieras fechas que no estén explícitamente mencionadas en el texto.
 5. NO incluyas el campo DTEND si no se menciona explícitamente una hora o fecha de finalización.
+6. No inventes un año que no exista literalmente en el texto. 
+7. Si en el texto no se lee claramente un año (por ejemplo, '2024', '2025', etc.), no asumas uno. 
+8. Devuelve siempre MM-DD u HH:MM si el año no se menciona explícitamente.
 
 Estructura JSON requerida:
 [
@@ -264,6 +267,11 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
         4. Omite DTEND si no se menciona explícitamente
         5. Asegúrate de que RRULE esté en el formato ICS correcto si está presente
         6. Elimina cualquier campo que no esté en la estructura especificada
+
+        Importante: 
+        - No inventes un año que no exista literalmente en el texto. 
+        - Si en el texto no se lee claramente un año (por ejemplo, '2024', '2025', etc.), no asumas uno. 
+        - Devuelve siempre MM-DD u HH:MM si el año no se menciona explícitamente.
 
         Devuelve solo el JSON corregido, sin explicaciones.
         """
