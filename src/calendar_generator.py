@@ -117,7 +117,7 @@ class EntityExtractor:
                     logger.error(f"Error initializing Groq client: {str(e)}")
                     self.client = None
 
-    def process_event_date(self, date_str: str, current_date: datetime) -> Optional[datetime]:
+    def process_event_date(self, date_str: str, reference_date: datetime) -> Optional[datetime]:
         if not date_str:
             return None
 
@@ -131,44 +131,62 @@ class EntityExtractor:
             # Caso 2: Solo hora (HH:MM)
             if ":" in date_str and "-" not in date_str:
                 time_obj = datetime.strptime(date_str, "%H:%M").time()
-                date_time = current_date.replace(
+                date_time = reference_date.replace(
                     hour=time_obj.hour,
                     minute=time_obj.minute,
                     second=0,
                     microsecond=0
                 )
                 # Si la hora ya pasó hoy, asumimos que es para mañana
-                if date_time < current_date:
+                if date_time < reference_date:
                     date_time += timedelta(days=1)
                 return date_time
             
             # Caso 3: Fecha sin año (MM-DD)
-            if "-" in date_str and len(date_str.split('-')) == 2:
-                month, day = map(int, date_str.split('-'))
-                date_time = current_date.replace(
-                    month=month,
-                    day=day,
-                    hour=0,
-                    minute=0,
-                    second=0,
-                    microsecond=0
-                )
+            if "-" in date_str:
+                # Verificamos si contiene "T" (ej: 01-18T18:30:00)
+                if "T" in date_str:
+                    # dividir "MM" y el resto: "01", "18T18:30:00"
+                    month_str, rest_str = date_str.split('-', maxsplit=1)
+                    month = int(month_str)
 
-                # Si la fecha ya pasó este año
-                if date_time < current_date:
-                    # Si estamos en noviembre o diciembre, mover al próximo año
-                    if current_date.month in [11, 12]:
-                        date_time = date_time.replace(year=current_date.year + 1)
-                    else:
-                        # Evento pasado fuera de noviembre/diciembre -> ignorar
-                        logger.warning(f"Evento pasado ignorado: {date_str}")
-                        return None
+                    # dividir "18T18:30:00" en "18" y "18:30:00"
+                    day_str, time_str = rest_str.split('T')
+                    day = int(day_str)
+                    # dividir "18:30:00" en hora, minuto, segundo
+                    hour, minute, second = map(int, time_str.split(':'))
+
+                    date_time = reference_date.replace(
+                        month=month,
+                        day=day,
+                        hour=hour,
+                        minute=minute,
+                        second=second,
+                        microsecond=0
+                    )
+                else:
+                    # solo "MM-DD"
+                    month, day = map(int, date_str.split('-'))
+                    date_time = reference_date.replace(
+                        month=month,
+                        day=day,
+                        hour=0,
+                        minute=0,
+                        second=0,
+                        microsecond=0
+                    )
+
+                # Si la fecha resultante ya pasó, asignar el siguiente año
+                if date_time < reference_date:
+                    date_time = date_time.replace(year=date_time.year + 1)
+
                 return date_time
 
         except ValueError as e:
             logger.error(f"Error procesando fecha: {str(e)}")
             return None
 
+        # Si ningún caso coincide
         return None
 
     def get_improved_prompt(self, text: str) -> str:
@@ -210,6 +228,10 @@ Texto a analizar:
 Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si algún campo no tiene información específica, omítelo del JSON."""
 
     def validate_and_fix_json(self, json_data: str) -> dict:
+        """
+        Llama a la API de Groq para validar y corregir el JSON, 
+        o devuelve el JSON parseado si no hay cliente o hay algún error.
+        """
         if not self.client:
             logger.warning(
                 "El cliente Groq no está inicializado. No se puede validar el JSON."
@@ -318,18 +340,29 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                 if isinstance(validated_event_data_list, dict):
                     validated_event_data_list = [validated_event_data_list]
 
+                if metadata and metadata.get("telegram_timestamp"):
+                    try:
+                        reference_date = datetime.fromtimestamp(
+                            metadata["telegram_timestamp"], pytz.timezone("Europe/Madrid")
+                        )
+                        logger.info(f"Usando la fecha de publicación del mensaje como referencia: {reference_date}")
+                    except Exception as ex:
+                        logger.warning(f"No se pudo parsear telegram_timestamp ({ex}). Usando fecha del sistema.")
+                        reference_date = datetime.now(pytz.timezone("Europe/Madrid"))
+                else:
+                    reference_date = datetime.now(pytz.timezone("Europe/Madrid"))
+                    logger.info(f"Usando fecha/hora del sistema como referencia: {reference_date}")
+
                 # Process and return all valid events
                 for event_data in validated_event_data_list:
-                    # Procesar fechas
-                    current_date = datetime.now(pytz.timezone("Europe/Madrid"))
                     start_str = event_data.get("DTSTART")
                     if start_str:
-                        start_date_time = self.process_event_date(start_str, current_date)
+                        start_date_time = self.process_event_date(start_str, reference_date)
                     else:
                         logger.warning(
                             "No se proporcionó fecha/hora de inicio. Usando la fecha/hora actual."
                         )
-                        start_date_time = current_date
+                        start_date_time = reference_date
 
                     if "RRULE" in event_data:
                         rrule = event_data["RRULE"].strip()
@@ -340,9 +373,9 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                     # Procesar fecha de fin
                     end_str = event_data.get("DTEND")
                     if end_str:
-                        end_date_time = self.process_event_date(end_str, current_date)
+                        end_date_time = self.process_event_date(end_str, reference_date)
 
-                        if end_date_time <= start_date_time:
+                        if end_date_time and end_date_time <= start_date_time:
                             end_date_time += timedelta(days=1)
 
                         event_data["DTEND"] = end_date_time
@@ -379,7 +412,7 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
                             logger.info(f"Final tags for event: {event_data['tags']}")
                         else:
                             logger.warning(f"No geolocation info found for: {event_data['LOCATION']}")
-                            event_data["tags"] = base_tags if 'base_tags' in locals() else []
+                            event_data["tags"] = []
 
                     # Añadir descripción del mensaje de Telegram
                     if metadata and metadata.get("text"):
@@ -403,6 +436,7 @@ Proporciona solo la respuesta en formato JSON, sin explicaciones adicionales. Si
             "No se pudo extraer la información completa del evento después del número máximo de intentos."
         )
         return []
+
 
 
 class ICSExporter:
