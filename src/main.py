@@ -14,7 +14,6 @@ from ics_uploader import extract_event_details_from_ics, send_event, process_eve
 from sqlite_tracker import DatabaseManager
 from telegram_bot import TelegramBot
 from utils import (
-    are_images_similar,
     clean_directories,
     get_image_hash,
     get_next_occurrence,
@@ -22,14 +21,16 @@ from utils import (
     load_config,
     setup_logging,
     get_next_valid_date,
-    compare_image_regions,
-    check_duplicate
+    DuplicateDetector
 )
 
 
 async def main():
     config = load_config()
     logger = setup_logging(config, "main")
+
+    # Initialize the duplicate detector
+    duplicate_detector = DuplicateDetector(config)
 
     logger.info("Starting main process")
 
@@ -105,37 +106,38 @@ async def main():
     processed_hashes = {}
 
     for img_file in new_image_files:
-        image_hash = get_image_hash(
-            img_file, 
-            hash_size=config.get("duplicate_detection", {}).get("hash_size", 32)
-        )
-
-        # Verificar duplicados usando la configuración
-        is_duplicate, matching_file = check_duplicate(
-            img_file,
-            processed_hashes,
-            new_image_files,
-            config
-        )
-
-        if is_duplicate:
-            matching_name = matching_file.name if isinstance(matching_file, Path) else str(matching_file)
-            logger.info(f"Saltando imagen duplicada: {img_file.name} (duplicada de: {matching_name})")
-            continue
-        elif db_manager.is_hash_processed(image_hash):
-            logger.info(f"Hash ya procesado: {img_file.name}")
-            continue
-
-        # Si no es duplicado, procesar la imagen
-        logger.info(f"Procesando nueva imagen: {img_file.name}")
+        # Get current image hashes
+        current_hashes = duplicate_detector.calculate_image_hash(img_file)
         
-        # Guardar el hash con información adicional
-        similarity_info = {
-            "processed_date": datetime.now().isoformat(),
-            "hash_size": config.get("duplicate_detection", {}).get("hash_size", 32),
-            "threshold": config.get("duplicate_detection", {}).get("similarity_threshold", 8)
-        }
-        db_manager.add_image_hash_with_info(img_file.name, image_hash, similarity_info)
+        if current_hashes:
+            # Check for duplicates
+            is_duplicate, matching_file = duplicate_detector.check_duplicate(
+                img_file,
+                processed_hashes,
+                new_image_files
+            )
+
+            if is_duplicate:
+                matching_name = matching_file.name if isinstance(matching_file, Path) else str(matching_file)
+                logger.info(f"Skipping duplicate image: {img_file.name} (duplicate of: {matching_name})")
+                continue
+            elif db_manager.is_hash_processed(current_hashes["phash"]):  # Use perceptual hash for DB check
+                logger.info(f"Hash already processed: {img_file.name}")
+                continue
+
+            # Process new image
+            logger.info(f"Processing new image: {img_file.name}")
+            
+            # Store hash information
+            hash_info = {
+                "processed_date": datetime.now().isoformat(),
+                "hash_size": duplicate_detector.hash_size,
+                "phash": current_hashes["phash"],
+                "ahash": current_hashes["ahash"],
+                "ghash": current_hashes["ghash"]
+            }
+            db_manager.add_image_hash_with_info(img_file.name, current_hashes["phash"], hash_info)
+            processed_hashes[img_file.name] = current_hashes
 
         text_file_path = text_output_folder / (img_file.stem + ".txt")
         ics_file_path = ics_output_folder / (img_file.stem + ".ics")
@@ -225,8 +227,7 @@ async def main():
         else:
             logger.warning(f"No text extracted from image {img_file.name}")
         
-        processed_hashes[img_file.name] = image_hash
-        db_manager.add_image_hash(img_file.name, image_hash)
+        processed_hashes[img_file.name] = current_hashes
         db_manager.mark_image_as_processed(img_file.name)
 
     logger.info(f"Total new events processed from images: {processed_events}")

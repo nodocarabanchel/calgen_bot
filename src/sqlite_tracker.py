@@ -59,33 +59,31 @@ class DatabaseManager:
     def migrate_database(self):
         try:
             with self.transaction():
+                # Verificar columnas actuales
                 self.cursor.execute("PRAGMA table_info(image_hashes)")
                 columns = {column[1] for column in self.cursor.fetchall()}
                 
-                if 'similarity_info' not in columns:
-                    logger.info("Iniciando migración de la tabla image_hashes")
-                    
+                # Migrar si es necesario
+                if 'hash_info' not in columns:
                     self.cursor.execute("""
-                        CREATE TABLE IF NOT EXISTS image_hashes_new (
+                        CREATE TABLE image_hashes_new (
                             image_name TEXT PRIMARY KEY,
-                            hash TEXT NOT NULL,
-                            similarity_info TEXT,
+                            phash TEXT NOT NULL,
+                            hash_info TEXT,
                             processed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         )
                     """)
                     
+                    # Migrar datos existentes
                     self.cursor.execute("""
-                        INSERT INTO image_hashes_new (image_name, hash)
+                        INSERT INTO image_hashes_new (image_name, phash)
                         SELECT image_name, hash FROM image_hashes
                     """)
                     
-                    self.cursor.execute("DROP TABLE IF EXISTS image_hashes")
+                    self.cursor.execute("DROP TABLE image_hashes")
                     self.cursor.execute("ALTER TABLE image_hashes_new RENAME TO image_hashes")
-                    
-                    logger.info("Migración completada exitosamente")
-
         except sqlite3.Error as e:
-            logger.error(f"Error durante la migración de la base de datos: {e}")
+            logger.error(f"Error en migración: {e}")
             raise
 
     def add_image_hash(self, image_name, image_hash):
@@ -95,22 +93,20 @@ class DatabaseManager:
                 (image_name, image_hash)
             )
 
-    def add_image_hash_with_info(self, image_name, image_hash, similarity_info=None):
-        with self.transaction():
-            self.cursor.execute("""
-                INSERT OR REPLACE INTO image_hashes 
-                (image_name, hash, similarity_info) 
-                VALUES (?, ?, ?)
-            """, (image_name, image_hash, json.dumps(similarity_info) if similarity_info else None))
+    def add_image_hash_with_info(self, image_name, phash, hash_info):
+        query = """INSERT OR REPLACE INTO image_hashes 
+                (image_name, phash, hash_info) VALUES (?, ?, ?)"""
+        self.execute(query, (image_name, phash, json.dumps(hash_info)))
 
-    def is_hash_processed(self, image_hash):
+    def is_hash_processed(self, phash):
         try:
             self.cursor.execute(
-                "SELECT 1 FROM image_hashes WHERE hash = ? LIMIT 1", (image_hash,)
+                "SELECT 1 FROM image_hashes WHERE phash = ? LIMIT 1",
+                (phash,)
             )
             return self.cursor.fetchone() is not None
         except sqlite3.Error as e:
-            logger.error(f"Error checking processed hash: {e}")
+            logger.error(f"Error verificando hash: {e}")
             return False
 
     def mark_image_as_processed(self, image_name):
