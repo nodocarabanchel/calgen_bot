@@ -475,6 +475,14 @@ def get_geolocation(config, address):
                 logger.info(f"Coordinates outside Madrid Community bounds: {lat}, {lon}")
                 return None
         
+        MADRID_MUNICIPALITIES = [
+                'madrid', 'móstoles', 'alcalá de henares', 'fuenlabrada', 'leganés', 
+                'getafe', 'alcorcón', 'torrejón de ardoz', 'parla', 'alcobendas',
+                'san sebastián de los reyes', 'pozuelo de alarcón', 'rivas-vaciamadrid',
+                'las rozas', 'coslada', 'valdemoro', 'majadahonda', 'collado villalba',
+                'aranjuez', 'arganda del rey', 'boadilla del monte', 'pinto', 'colmenar viejo',
+                'tres cantos', 'san fernando de henares'
+            ]
         # Verificación secundaria de municipios
         formatted_address = location.get('formatted', '').lower()
         has_madrid_mention = ('madrid' in formatted_address or 

@@ -15,7 +15,6 @@ from sqlite_tracker import DatabaseManager
 from telegram_bot import TelegramBot
 from utils import (
     clean_directories,
-    get_image_hash,
     get_next_occurrence,
     is_recurrent_event,
     load_config,
