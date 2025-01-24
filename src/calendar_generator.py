@@ -117,6 +117,11 @@ class EntityExtractor:
                     logger.error(f"Error initializing Groq client: {str(e)}")
                     self.client = None
 
+
+    def should_increment_year(self, current_date: datetime, event_date: datetime) -> bool:
+        # Solo incrementar si estamos en nov/dic y el evento es para ene/feb
+        return (current_date.month >= 11 and event_date.month <= 2)
+
     def process_event_date(self, date_str: str, reference_date: datetime) -> Optional[datetime]:
         if not date_str:
             return None
@@ -176,9 +181,10 @@ class EntityExtractor:
                         microsecond=0
                     )
 
-                # Si la fecha resultante ya pasó, asignar el siguiente año
+                # Solo incrementar si estamos en nov/dic y el evento es para ene/feb
                 if date_time < reference_date:
-                    date_time = date_time.replace(year=date_time.year + 1)
+                    if self.should_increment_year(reference_date, date_time):
+                        date_time = date_time.replace(year=date_time.year + 1)
 
                 return date_time
 
