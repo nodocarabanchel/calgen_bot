@@ -50,9 +50,16 @@ def setup_logging(config, log_name=None):
 
     return logger
 
+import logging
+import numpy as np
+from PIL import Image
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
 class DuplicateDetector:
     def __init__(self, config):
-        self.hash_size = config.get("duplicate_detection", {}).get("hash_size", 64)
+        self.hash_size = config.get("duplicate_detection", {}).get("hash_size", 16)
         self.similarity_threshold = config.get("duplicate_detection", {}).get("similarity_threshold", 4)
         self.region_threshold = config.get("duplicate_detection", {}).get("region_threshold", 30)
         self.grid_size = config.get("duplicate_detection", {}).get("grid_size", 4)
@@ -60,29 +67,29 @@ class DuplicateDetector:
 
     def calculate_image_hash(self, image_path):
         """
-        Calcula múltiples hashes de la imagen usando diferentes métodos para mayor precisión
+        Calcula múltiples hashes de la imagen usando diferentes métodos para mayor precisión.
         """
         try:
             with Image.open(image_path) as img:
-                # Convertir a escala de grises y redimensionar
+                # Convertir a escala de grises
                 img_gray = img.convert("L")
-                
-                # Hash perceptual básico
+
+                # Para phash, redimensionar a (hash_size+1, hash_size)
                 img_resized = img_gray.resize((self.hash_size + 1, self.hash_size), Image.LANCZOS)
                 pixels = np.array(img_resized)
                 diff = pixels[:, 1:] > pixels[:, :-1]
                 phash = "".join(["1" if d else "0" for d in diff.flatten()])
-                
-                # Hash de media
+
+                # Hash de media (ahash)
                 img_tiny = img_gray.resize((8, 8), Image.LANCZOS)
                 pixels = np.array(img_tiny)
                 mean = pixels.mean()
                 ahash = "".join(["1" if p > mean else "0" for p in pixels.flatten()])
-                
-                # Hash de gradiente
+
+                # Hash de gradiente (ghash)
                 gradient = np.gradient(pixels)[0]
                 ghash = "".join(["1" if g > 0 else "0" for g in gradient.flatten()])
-                
+
                 return {
                     "phash": phash,
                     "ahash": ahash,
@@ -94,131 +101,176 @@ class DuplicateDetector:
 
     def compare_hashes(self, hash1, hash2):
         """
-        Compara los hashes usando múltiples métricas
+        Compara los hashes usando múltiples métricas y un promedio ponderado.
+        Retorna (similar, distance).
         """
         if not (hash1 and hash2):
             return False, float('inf')
-            
-        # Calcular distancia Hamming para cada tipo de hash
-        distances = {
-            hash_type: sum(h1 != h2 for h1, h2 in zip(hash1[hash_type], hash2[hash_type]))
-            for hash_type in hash1.keys()
-        }
-        
-        # Usar el promedio ponderado de las distancias
+
+        # Distancias Hamming por cada tipo de hash
+        distances = {}
+        for h_type in hash1.keys():
+            dist = sum(h1 != h2 for h1, h2 in zip(hash1[h_type], hash2[h_type]))
+            distances[h_type] = dist
+
+        # <-- LOG de distancias Hamming
+        logger.debug(f"Distancias Hamming por hash: {distances}")
+
+        # Promedio ponderado (ajusta si lo prefieres)
         weights = {"phash": 0.5, "ahash": 0.3, "ghash": 0.2}
         weighted_distance = sum(distances[k] * weights[k] for k in distances)
         
-        return weighted_distance <= self.similarity_threshold, weighted_distance
+        logger.debug(f"Distancia ponderada total = {weighted_distance:.2f}, Umbral = {self.similarity_threshold}")
+
+        # Comparar con el umbral
+        is_similar = weighted_distance <= self.similarity_threshold
+        return is_similar, weighted_distance
 
     def analyze_image_regions(self, img1_path, img2_path):
         """
         Analiza las diferencias entre regiones de las imágenes usando múltiples métricas
+        y retorna la lista de regiones que superan el umbral.
         """
+        region_differences = []
         try:
             with Image.open(img1_path) as img1, Image.open(img2_path) as img2:
                 img1 = img1.convert("RGB")
                 img2 = img2.convert("RGB")
-                
+
+                # Redimensionar img2 si no coincide
                 if img1.size != img2.size:
                     img2 = img2.resize(img1.size, Image.LANCZOS)
-                
-                # Convertir a arrays numpy para análisis
+
                 img1_array = np.array(img1)
                 img2_array = np.array(img2)
-                
+
                 # Dividir en regiones
-                region_differences = []
-                h_regions = np.array_split(range(img1.size[1]), self.grid_size)
-                w_regions = np.array_split(range(img1.size[0]), self.grid_size)
-                
-                for i, h_region in enumerate(h_regions):
-                    for j, w_region in enumerate(w_regions):
-                        region1 = img1_array[h_region[0]:h_region[-1]+1, 
-                                           w_region[0]:w_region[-1]+1]
-                        region2 = img2_array[h_region[0]:h_region[-1]+1,
-                                           w_region[0]:w_region[-1]+1]
-                        
-                        # Calcular múltiples métricas de diferencia
-                        pixel_diff = np.mean(np.abs(region1 - region2))
+                height, width, _ = img1_array.shape
+                h_step = height // self.grid_size
+                w_step = width // self.grid_size
+
+                for i in range(self.grid_size):
+                    for j in range(self.grid_size):
+                        # Coordenadas de la región
+                        top = i * h_step
+                        left = j * w_step
+                        # Última región podría llegar hasta el borde si no divide exacto
+                        bottom = (i + 1) * h_step if i < self.grid_size - 1 else height
+                        right = (j + 1) * w_step if j < self.grid_size - 1 else width
+
+                        region1 = img1_array[top:bottom, left:right]
+                        region2 = img2_array[top:bottom, left:right]
+
+                        # Múltiples métricas
+                        pixel_diff = self._calculate_pixel_difference(region1, region2)
                         hist_diff = self._calculate_histogram_difference(region1, region2)
                         edge_diff = self._calculate_edge_difference(region1, region2)
-                        
-                        # Combinar métricas con pesos
-                        combined_diff = (0.4 * pixel_diff + 
-                                       0.3 * hist_diff + 
-                                       0.3 * edge_diff)
-                        
+
+                        # Pesos ajustables; normalización previa en hist_diff
+                        combined_diff = (0.4 * pixel_diff +
+                                         0.3 * hist_diff +
+                                         0.3 * edge_diff)
+
+                        # <-- LOG de depuración de cada región
+                        logger.debug(f"Región ({i},{j}): "
+                                     f"pixel_diff={pixel_diff:.2f}, "
+                                     f"hist_diff={hist_diff:.2f}, "
+                                     f"edge_diff={edge_diff:.2f}, "
+                                     f"combined={combined_diff:.2f}")
+
                         if combined_diff > self.region_threshold:
                             region_differences.append((i, j, combined_diff))
-                
-                return region_differences
-                
         except Exception as e:
             logger.error(f"Error analizando regiones entre {img1_path} y {img2_path}: {e}")
-            return []
+        
+        return region_differences
+
+    def _calculate_pixel_difference(self, region1, region2):
+        """
+        Diferencia promedio de píxeles (0 a 255).
+        """
+        return float(np.mean(np.abs(region1 - region2)))
 
     def _calculate_histogram_difference(self, region1, region2):
         """
-        Calcula la diferencia entre histogramas de color
+        Calcula la diferencia entre histogramas de color con normalización.
+        Devolverá un valor en ~[0, 2].
         """
-        hist1 = np.histogram(region1, bins=64, range=(0,255))[0]
-        hist2 = np.histogram(region2, bins=64, range=(0,255))[0]
-        return np.mean(np.abs(hist1 - hist2))
+        # <-- NORMALIZACIÓN
+        hist1, _ = np.histogram(region1, bins=64, range=(0, 255))
+        hist2, _ = np.histogram(region2, bins=64, range=(0, 255))
+        hist1 = hist1.astype(float)
+        hist2 = hist2.astype(float)
+
+        # Evita que una región grande dispare el hist_diff
+        if hist1.sum() > 0:
+            hist1 /= hist1.sum()
+        if hist2.sum() > 0:
+            hist2 /= hist2.sum()
+
+        return float(np.sum(np.abs(hist1 - hist2)))
 
     def _calculate_edge_difference(self, region1, region2):
         """
-        Calcula la diferencia en los bordes usando el gradiente Sobel
+        Calcula la diferencia en los bordes usando gradiente Sobel simplificado.
+        Se hace con la media en escala de grises de la región.
         """
-        grad1_x = np.gradient(region1.mean(axis=2))[0]
-        grad2_x = np.gradient(region2.mean(axis=2))[0]
-        grad1_y = np.gradient(region1.mean(axis=2))[1]
-        grad2_y = np.gradient(region2.mean(axis=2))[1]
-        
+        gray1 = np.mean(region1, axis=2)
+        gray2 = np.mean(region2, axis=2)
+
+        grad1_x = np.gradient(gray1)[0]
+        grad2_x = np.gradient(gray2)[0]
+        grad1_y = np.gradient(gray1)[1]
+        grad2_y = np.gradient(gray2)[1]
+
         edge_diff_x = np.mean(np.abs(grad1_x - grad2_x))
         edge_diff_y = np.mean(np.abs(grad1_y - grad2_y))
-        
-        return (edge_diff_x + edge_diff_y) / 2
+
+        return float((edge_diff_x + edge_diff_y) / 2)
 
     def check_duplicate(self, img_path, processed_hashes, processed_files):
         """
-        Verifica si una imagen es duplicada usando múltiples criterios
+        Verifica si una imagen es duplicada usando múltiples criterios:
+         1) Distancia de hash <= similarity_threshold
+         2) Si pasa el hash, se analiza por regiones; si las regiones distintas <= min_differences => duplicado
         """
         logger.info(f"Verificando duplicados para: {img_path}")
         
-        # Calcular hashes de la imagen actual
+        # Hash de la imagen actual
         current_hashes = self.calculate_image_hash(img_path)
         if not current_hashes:
             return False, None
-            
-        # Verificar contra archivos procesados en esta sesión
+
+        # 1) Comparar con archivos procesados en esta sesión
         for processed_file in processed_files:
             if str(processed_file) != str(img_path):
-                processed_hashes_current = self.calculate_image_hash(processed_file)
-                similar, distance = self.compare_hashes(current_hashes, processed_hashes_current)
+                stored_hashes = processed_hashes.get(str(processed_file))
+                if not stored_hashes:
+                    stored_hashes = self.calculate_image_hash(processed_file)
                 
+                similar, distance = self.compare_hashes(current_hashes, stored_hashes)
                 if similar:
-                    logger.info(f"Hash similar encontrado con {processed_file} (distancia: {distance})")
+                    logger.debug(f"Hash similar (dist={distance:.2f}) con {processed_file.name}, comprobando regiones...")
                     differences = self.analyze_image_regions(img_path, processed_file)
-                    
+                    logger.debug(f"{len(differences)} regiones superan el threshold (region_threshold={self.region_threshold})")
                     if len(differences) <= self.min_differences:
-                        logger.info(f"Imagen {img_path} es duplicado de {processed_file}")
-                        logger.info(f"Diferencias encontradas en {len(differences)} regiones")
+                        logger.info(f"Imagen {img_path.name} es duplicado de {processed_file.name}")
                         return True, processed_file
-        
-        # Verificar contra hashes almacenados previamente
+
+        # 2) Comparar con hashes almacenados previamente (si guardas hashes de ejecuciones anteriores)
         for processed_path, stored_hashes in processed_hashes.items():
             if Path(processed_path).exists():
                 similar, distance = self.compare_hashes(current_hashes, stored_hashes)
-                
                 if similar:
+                    logger.debug(f"Hash similar (dist={distance:.2f}) con {processed_path}, comprobando regiones...")
                     differences = self.analyze_image_regions(img_path, processed_path)
-                    
+                    logger.debug(f"{len(differences)} regiones superan el threshold (region_threshold={self.region_threshold})")
                     if len(differences) <= self.min_differences:
-                        logger.info(f"Imagen {img_path} es duplicado (almacenado) de {processed_path}")
-                        return True, processed_path
-        
+                        logger.info(f"Imagen {img_path.name} es duplicado (almacenado) de {Path(processed_path).name}")
+                        return True, Path(processed_path)
+
         return False, None
+
 
 class GooglePlacesService:
     def __init__(self, api_key):

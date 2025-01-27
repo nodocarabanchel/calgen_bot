@@ -25,6 +25,8 @@ plain_texts/*
 download_tracker/*
 !download_tracker/.gitkeep
 
+tests/test_images/*
+
 # Archivos de configuración
 settings.yaml
 key.json
