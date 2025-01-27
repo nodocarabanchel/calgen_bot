@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  calendar_generator:
+    user: root
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        UID: ${UID:-1000}        # Usa el UID dinámico o predeterminado
+        GID: ${GID:-1000}        # Usa el GID dinámico o predeterminado
+    container_name: calendar_generator
+    volumes:
+      - ./settings.yaml:/app/settings.yaml:ro
+      - ./logs:/app/logs          # Montar logs desde el host para persistencia
+      - session_volume:/app/session
+      - sqlite_db_volume:/app/sqlite_db
+      - ./src:/app/src            # Código fuente montado para facilitar desarrollo
+      - plain_texts_volume:/app/plain_texts
+      - ics_volume:/app/ics
+    environment:
+      - CONFIG_FILE=/app/settings.yaml
+    restart: unless-stopped
+
+networks:
+  calendar_network:
+    name: calendar_network
+
+volumes:
+  session_volume:
+  sqlite_db_volume:
+  plain_texts_volume:
+  ics_volume:

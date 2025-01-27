@@ -28,7 +28,6 @@ download_tracker/*
 # Archivos de configuración
 settings.yaml
 key.json
-docker-compose.yml
 .env
 
 # Cache y compilados
@@ -56,7 +55,6 @@ ENV/
 *~
 
 # Archivos de datos
-*.txt
 *.jpg
 *.jpeg
 *.png
@@ -64,3 +62,4 @@ ENV/
 *.ics
 *.session
 *.session-journal
+repomix-output.txt
