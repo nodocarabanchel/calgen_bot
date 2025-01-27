@@ -20,11 +20,11 @@ external_api:
 
 # Configuración de reconocimiento de duplicados
 duplicate_detection:
-  hash_size: 32                # Tamaño del hash para comparación de imágenes
-  similarity_threshold: 8      # Umbral para considerar hashes similares
-  region_threshold: 30         # Umbral para diferencias por región
-  grid_size: 3                 # Tamaño de la cuadrícula para análisis regional
-  min_differences: 2           # Número mínimo de diferencias para considerar imágenes distintas
+  hash_size: 64                # Tamaño del hash para comparación de imágenes
+  similarity_threshold: 25      # Umbral para considerar hashes similares
+  region_threshold: 10         # Umbral para diferencias por región
+  grid_size: 2                 # Tamaño de la cuadrícula para análisis regional
+  min_differences: 4           # Número mínimo de diferencias para considerar imágenes distintas
 
 # Configuración de Google Document AI (para OCR)
 google_document_ai:
