@@ -127,64 +127,98 @@ class EntityExtractor:
             return None
 
         try:
-            # Caso 1: Si viene con año (YYYY-MM-DD[THH:MM:SS])
+            # Caso 1: ISO con año (YYYY-MM-DD[THH:MM:SS])
             if len(date_str.split('-')) == 3:
+                # Intenta parsear en formato ISO completo
                 return datetime.fromisoformat(date_str).replace(
                     tzinfo=pytz.timezone("Europe/Madrid")
                 )
-            
+
             # Caso 2: Solo hora (HH:MM)
+            # (Se cumple si hay ':' y NO hay '-')
             if ":" in date_str and "-" not in date_str:
-                time_obj = datetime.strptime(date_str, "%H:%M").time()
+                time_obj = datetime.strptime(date_str.strip(), "%H:%M").time()
                 date_time = reference_date.replace(
                     hour=time_obj.hour,
                     minute=time_obj.minute,
                     second=0,
                     microsecond=0
                 )
-                # Si la hora ya pasó hoy, asumimos que es para mañana
+                # Si la hora ya pasó hoy, asumimos que es para el día siguiente
                 if date_time < reference_date:
                     date_time += timedelta(days=1)
                 return date_time
-            
-            # Caso 3: Fecha sin año (MM-DD)
-            if "-" in date_str:
-                # Verificamos si contiene "T" (ej: 01-18T18:30:00)
-                if "T" in date_str:
-                    # dividir "MM" y el resto: "01", "18T18:30:00"
-                    month_str, rest_str = date_str.split('-', maxsplit=1)
-                    month = int(month_str)
 
-                    # dividir "18T18:30:00" en "18" y "18:30:00"
-                    day_str, time_str = rest_str.split('T')
-                    day = int(day_str)
-                    # dividir "18:30:00" en hora, minuto, segundo
-                    hour, minute, second = map(int, time_str.split(':'))
+            # Caso 3: Fecha sin año (MM-DD o MM-DDTHH:MM:SS)
+            if "-" in date_str and "T" in date_str:
+                # Ejemplo: "01-18T18:30:00"
+                month_str, rest_str = date_str.split('-', maxsplit=1)
+                month = int(month_str)
+                day_str, time_str = rest_str.split('T')
+                day = int(day_str)
+                hour, minute, second = map(int, time_str.split(':'))
 
-                    date_time = reference_date.replace(
-                        month=month,
-                        day=day,
-                        hour=hour,
-                        minute=minute,
-                        second=second,
-                        microsecond=0
-                    )
-                else:
-                    # solo "MM-DD"
-                    month, day = map(int, date_str.split('-'))
-                    date_time = reference_date.replace(
-                        month=month,
-                        day=day,
-                        hour=0,
-                        minute=0,
-                        second=0,
-                        microsecond=0
-                    )
+                date_time = reference_date.replace(
+                    month=month,
+                    day=day,
+                    hour=hour,
+                    minute=minute,
+                    second=second,
+                    microsecond=0
+                )
 
-                # Solo incrementar si estamos en nov/dic y el evento es para ene/feb
+                # Verificar si debemos incrementar el año (ej: es nov/dic y el evento es ene/feb)
                 if date_time < reference_date:
                     if self.should_increment_year(reference_date, date_time):
                         date_time = date_time.replace(year=date_time.year + 1)
+
+                return date_time
+
+            # Caso 3 (bis): Fecha sin año solo con (MM-DD)
+            if "-" in date_str and ":" not in date_str and "T" not in date_str:
+                month, day = map(int, date_str.split('-'))
+                date_time = reference_date.replace(
+                    month=month,
+                    day=day,
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0
+                )
+
+                if date_time < reference_date:
+                    if self.should_increment_year(reference_date, date_time):
+                        date_time = date_time.replace(year=date_time.year + 1)
+
+                return date_time
+
+            # Caso 4 (nuevo): Formato "DD-HH:MM" o "MM-HH:MM" (p.ej. "03-08:00"), 
+            # o bien "DD HH:MM" si quieres normalizar ese espacio a un guion.
+            # Detectamos un patrón donde hay un separador '-' y luego algo con ':'.
+            match_hybrid = re.match(r'^(\d{1,2})[-\s](\d{1,2}:\d{2})$', date_str.strip())
+            if match_hybrid:
+                # ejemplo "03-08:00" => group(1) = "03", group(2) = "08:00"
+                day_or_month = int(match_hybrid.group(1))
+                time_str = match_hybrid.group(2)
+                time_obj = datetime.strptime(time_str, "%H:%M").time()
+
+                # Decisión: tratar el primer número como día o mes.
+                # Aquí asumimos día si day_or_month <= 31 (y < referencia.día?), 
+                # o mes si <=12 y cuadra con la lógica de tu app.
+                # Como ejemplo, aquí asumimos que es el día del mes.
+                date_time = reference_date.replace(
+                    day=day_or_month,
+                    hour=time_obj.hour,
+                    minute=time_obj.minute,
+                    second=0,
+                    microsecond=0
+                )
+                # Si quisiéramos interpretarlo como mes, cambiaríamos "day=..." por "month=...".
+                
+                # Si la hora ya pasó hoy, asumimos que es para el día siguiente
+                if date_time < reference_date:
+                    # Podrías ajustar día +1 o bien subir el mes, depende tu uso.
+                    date_time += timedelta(days=1)
 
                 return date_time
 
@@ -192,7 +226,7 @@ class EntityExtractor:
             logger.error(f"Error procesando fecha: {str(e)}")
             return None
 
-        # Si ningún caso coincide
+        # Si no encaja en ningún formato
         return None
 
     def get_improved_prompt(self, text: str) -> str:
